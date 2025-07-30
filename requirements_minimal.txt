@@ -1,0 +1,12 @@
+# Core dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+httpx==0.25.2
+pytz==2023.3
+supabase==2.0.3
+pandas==2.0.3
+python-dotenv==1.0.0
+
+# Google APIs
+google-api-python-client==2.95.0
+google-auth==2.23.4
