@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIZUKA - 楽天注文同期システム</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button.secondary {
+            background-color: #28a745;
+        }
+        button.secondary:hover {
+            background-color: #218838;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .status.success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .card {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .card h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+        }
+        .card .number {
+            font-size: 36px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        input[type="number"] {
+            padding: 8px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 80px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SIZUKA - 楽天注文同期システム</h1>
+        
+        <div class="dashboard" id="dashboard">
+            <!-- ダッシュボードはJavaScriptで動的に生成 -->
+        </div>
+
+        <div class="button-group">
+            <div>
+                <label>同期日数: </label>
+                <input type="number" id="syncDays" value="1" min="1" max="30">
+            </div>
+            <button onclick="syncOrders()">注文同期</button>
+            <button onclick="syncSheets()" class="secondary">商品マスタ同期</button>
+            <button onclick="checkConnection()">接続確認</button>
+            <button onclick="getInventoryDashboard()">在庫状況</button>
+            <button onclick="initializeInventory()" class="secondary">在庫初期化</button>
+        </div>
+
+        <div class="loading" id="loading">
+            処理中... <span id="loadingText"></span>
+        </div>
+
+        <div id="status"></div>
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        function showLoading(text = '') {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('loadingText').textContent = text;
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function showStatus(message, type = 'success') {
+            const status = document.getElementById('status');
+            status.className = `status ${type}`;
+            status.textContent = message;
+            setTimeout(() => {
+                status.textContent = '';
+                status.className = '';
+            }, 5000);
+        }
+
+        function showResult(data) {
+            document.getElementById('result').textContent = JSON.stringify(data, null, 2);
+        }
+
+        async function syncOrders() {
+            const days = document.getElementById('syncDays').value;
+            showLoading('注文データを同期中...');
+            try {
+                const response = await fetch(`${API_BASE}/sync-orders?days=${days}`);
+                const data = await response.json();
+                hideLoading();
+                
+                if (response.ok) {
+                    showStatus(`${data.order_count}件の注文を同期しました`, 'success');
+                    showResult(data);
+                    updateDashboard();
+                } else {
+                    showStatus('同期エラー: ' + data.detail, 'error');
+                }
+            } catch (error) {
+                hideLoading();
+                showStatus('通信エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function syncSheets() {
+            showLoading('スプレッドシートから同期中...');
+            try {
+                const response = await fetch(`${API_BASE}/sync-sheets`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                hideLoading();
+                
+                if (response.ok && data.status !== 'error') {
+                    showStatus('商品マスタの同期が完了しました', 'success');
+                    showResult(data);
+                } else {
+                    showStatus('同期エラー: ' + (data.message || data.detail), 'error');
+                }
+            } catch (error) {
+                hideLoading();
+                showStatus('通信エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function checkConnection() {
+            showLoading('接続確認中...');
+            try {
+                const response = await fetch(`${API_BASE}/check-connection`);
+                const data = await response.json();
+                hideLoading();
+                
+                if (response.ok && data.status === 'connected') {
+                    showStatus('データベース接続: 正常', 'success');
+                    showResult(data);
+                } else {
+                    showStatus('接続エラー: ' + data.message, 'error');
+                }
+            } catch (error) {
+                hideLoading();
+                showStatus('通信エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function getInventoryDashboard() {
+            showLoading('在庫状況を取得中...');
+            try {
+                const response = await fetch(`${API_BASE}/inventory-dashboard`);
+                const data = await response.json();
+                hideLoading();
+                
+                if (response.ok) {
+                    showStatus('在庫状況を取得しました', 'success');
+                    showResult(data);
+                    updateInventoryDashboard(data);
+                } else {
+                    showStatus('取得エラー: ' + data.detail, 'error');
+                }
+            } catch (error) {
+                hideLoading();
+                showStatus('通信エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function initializeInventory() {
+            if (!confirm('楽天の商品を在庫テーブルに初期化しますか？')) {
+                return;
+            }
+            
+            showLoading('在庫を初期化中...');
+            try {
+                const response = await fetch(`${API_BASE}/initialize-inventory/rakuten`, {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                hideLoading();
+                
+                if (response.ok) {
+                    showStatus(`${data.new_items}件の商品を登録しました`, 'success');
+                    showResult(data);
+                } else {
+                    showStatus('初期化エラー: ' + data.detail, 'error');
+                }
+            } catch (error) {
+                hideLoading();
+                showStatus('通信エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                const dashboard = document.getElementById('dashboard');
+                dashboard.innerHTML = `
+                    <div class="card">
+                        <h3>システム状態</h3>
+                        <div class="number">${data.status === 'healthy' ? '正常' : 'エラー'}</div>
+                    </div>
+                    <div class="card">
+                        <h3>DB接続</h3>
+                        <div class="number">${data.supabase_connected ? '接続中' : '切断'}</div>
+                    </div>
+                    <div class="card">
+                        <h3>Sheets同期</h3>
+                        <div class="number">${data.sheets_sync_available ? '利用可' : '利用不可'}</div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Dashboard update error:', error);
+            }
+        }
+
+        function updateInventoryDashboard(data) {
+            if (data.summary) {
+                const dashboard = document.getElementById('dashboard');
+                dashboard.innerHTML = `
+                    <div class="card">
+                        <h3>総商品数</h3>
+                        <div class="number">${data.summary.total_products}</div>
+                    </div>
+                    <div class="card">
+                        <h3>在庫切れ</h3>
+                        <div class="number" style="color: #dc3545;">${data.summary.out_of_stock_count}</div>
+                    </div>
+                    <div class="card">
+                        <h3>在庫少</h3>
+                        <div class="number" style="color: #ffc107;">${data.summary.low_stock_count}</div>
+                    </div>
+                    <div class="card">
+                        <h3>アクティブ商品</h3>
+                        <div class="number">${data.summary.active_products}</div>
+                    </div>
+                `;
+            }
+        }
+
+        // ページ読み込み時にダッシュボードを更新
+        window.onload = function() {
+            updateDashboard();
+        };
+    </script>
+</body>
+</html>

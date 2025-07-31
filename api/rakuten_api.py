@@ -154,11 +154,16 @@ class RakutenAPI:
                     # 注文データの準備
                     order_data = self._prepare_order_data(order, rakuten_platform_id)
 
-                    # 注文データの保存
-                    order_result = supabase.table("orders").upsert(
-                        order_data,
-                        on_conflict="platform_id,order_number"
-                    ).execute()
+                    # 注文データの保存（重複チェック付き）
+                    # 既存注文をチェック
+                    existing = supabase.table("orders").select("id").eq("order_number", order_data["order_number"]).execute()
+                    
+                    if existing.data:
+                        # 既存の注文があれば更新
+                        order_result = supabase.table("orders").update(order_data).eq("order_number", order_data["order_number"]).execute()
+                    else:
+                        # 新規注文として挿入
+                        order_result = supabase.table("orders").insert(order_data).execute()
 
                     if not order_result.data:
                         raise Exception(f"注文の保存に失敗: {order_number}")
@@ -199,22 +204,16 @@ class RakutenAPI:
             raise
 
     def _prepare_order_data(self, order: Dict, platform_id: int) -> Dict:
-        """注文データを準備"""
+        """注文データを準備（現在のスキーマに合わせて調整）"""
+        # 現在のordersテーブルのスキーマに合わせる
+        # カラム: id, platform_id, order_number, order_date, total_amount, status, created_at
         return {
             "platform_id": platform_id,
             "order_number": order["orderNumber"],
             "order_date": order.get("orderDatetime") or order.get("shopOrderCfmDatetime"),
             "total_amount": float(order.get("totalPrice", 0)),
-            "shipping_fee": float(order.get("postagePrice", 0)),
-            "payment_method": order.get("SettlementModel", {}).get("settlementMethodCode", ""),
-            "order_status": str(order.get("orderProgress", "")),
-            "coupon_amount": float(order.get("couponAllTotalPrice", 0)),
-            "point_amount": float(order.get("PointModel", {}).get("usedPoint", 0)),
-            "request_price": float(order.get("requestPrice", 0)),
-            "deal_price": float(order.get("goodsPrice", 0)),
-            "platform_data": json.dumps(order),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "status": "completed",  # 楽天から取得したデータは基本的に完了済み
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
     def _save_order_items(self, order: Dict, order_id: int) -> Dict[str, int]:
@@ -271,60 +270,25 @@ class RakutenAPI:
         return {"success": success_count, "error": error_count}
 
     def _prepare_item_data(self, item: Dict, order_id: int, is_parent: bool = False, is_child: bool = False, parent_product_code: str = "") -> Dict:
-        """商品データを準備"""
-        # SKU情報の処理
-        sku_models = item.get("SkuModelList", [])
-        sku_info = {
-            "variantId": sku_models[0].get("variantId") if sku_models else None,
-            "merchantDefinedSkuId": sku_models[0].get("merchantDefinedSkuId") if sku_models else None,
-            "skuInfo": sku_models[0].get("skuInfo") if sku_models else None
-        }
+        """商品データを準備（現在のスキーマに合わせて調整）"""
+        # 現在のorder_itemsテーブルのスキーマに合わせる
+        # カラム: id, order_id, product_code, product_name, quantity, price, created_at
         
-        # SKUモデルからデータを抽出
-        merchant_item_id, item_number, variant_id, item_choice = extract_sku_data(sku_models)
-        
-        # 商品番号と管理番号も設定（APIから直接取得）
-        if not item_number and item.get("itemNumber"):
-            item_number = item.get("itemNumber")
-        
-        if not merchant_item_id and item.get("manageNumber"):
-            merchant_item_id = item.get("manageNumber")
-        
-        # 選択された商品の選択肢情報を抽出
-        selected_choice = item.get("selectedChoice", "")
-        choices = extract_selected_choices(selected_choice)
-        
-        # 商品名から商品コードプレフィックスを抽出
         item_name = item.get("itemName", "")
-        product_code_prefix = extract_product_code_prefix(item_name)
-
+        quantity = int(item.get("units", 0))
+        unit_price = float(item.get("price", 0))
+        
         return {
             "order_id": order_id,
             "product_code": str(item.get("itemId", "")),
             "product_name": item_name,
-            "quantity": int(item.get("units", 0)),
-            "unit_price": float(item.get("price", 0)),
-            "total_price": float(item.get("price", 0)) * int(item.get("units", 0)),
-            "point_rate": float(item.get("pointRate", 0)) if "pointRate" in item else 0,
-            "tax_rate": float(item.get("taxRate", 0)),
-            "sku_info": json.dumps(sku_info) if sku_info else None,
-            "deal_flag": bool(item.get("dealFlag", False)),
-            "restore_inventory_flag": bool(item.get("restoreInventoryFlag", False)),
-            "is_parent": is_parent,
-            "is_child": is_child,
-            "parent_product_code": parent_product_code,
-            "product_code_prefix": product_code_prefix,
-            "merchant_item_id": merchant_item_id,
-            "item_number": item_number,
-            "variant_id": variant_id,
-            "item_choice": json.dumps(choices) if choices else None,
-            "selected_choice_raw": selected_choice,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat()
+            "quantity": quantity,
+            "price": unit_price,  # order_itemsテーブルではpriceカラム（単価）
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
     def _save_parent_and_children(self, parent_item: Dict, order_id: int, order_number: str) -> int:
-        """親商品とその子商品を保存"""
+        """親商品とその子商品を保存（現在のスキーマに合わせて調整）"""
         saved_count = 0
         
         # 親商品のデータを保存
@@ -341,31 +305,14 @@ class RakutenAPI:
         selected_items = parent_item.get("selectedItems", [])
         for child_item in selected_items:
             child_name = child_item.get("itemName", "")
-            child_prefix = extract_product_code_prefix(child_name)
             
             child_item_data = {
                 "order_id": order_id,
                 "product_code": str(child_item.get("itemId", "")),
                 "product_name": child_name,
                 "quantity": int(parent_item.get("units", 0)),  # 親商品と同じ数量
-                "unit_price": 0,  # 個別価格は通常表示されない
-                "total_price": 0,
-                "point_rate": 0,
-                "tax_rate": 0,
-                "sku_info": None,
-                "deal_flag": False,
-                "restore_inventory_flag": False,
-                "is_parent": False,
-                "is_child": True,
-                "parent_product_code": str(parent_item.get("itemId", "")),
-                "product_code_prefix": child_prefix,
-                "merchant_item_id": child_item.get("manageNumber", ""),
-                "item_number": child_item.get("itemNumber", ""),
-                "variant_id": "",
-                "item_choice": None,
-                "selected_choice_raw": None,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat()
+                "price": 0,  # 個別価格は通常表示されない
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
             
             # 子商品データの保存

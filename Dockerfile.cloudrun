@@ -1,0 +1,21 @@
+# Cloud Run用の最適化されたDockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# 依存関係を先にコピー（キャッシュ効率化）
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# アプリケーションコードをコピー
+COPY . .
+
+# Cloud Runはポート8080を推奨
+ENV PORT=8080
+
+# 非rootユーザーで実行（セキュリティ）
+RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app
+USER appuser
+
+# FastAPIをuvicornで起動
+CMD exec uvicorn main:app --host 0.0.0.0 --port $PORT

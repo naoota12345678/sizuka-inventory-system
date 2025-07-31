@@ -12,7 +12,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import pytz
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 
 # コアモジュール
 from core.config import Config
@@ -33,6 +36,10 @@ app = FastAPI(
     version=Config.APP_VERSION,
     description="楽天の注文データを同期し、在庫管理を行うAPI"
 )
+
+# テンプレートとスタティックファイルの設定
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # データベース初期化のインポート（エラーハンドリング付き）
 try:
@@ -74,9 +81,14 @@ async def startup_event():
         logger.error(f"起動時エラー: {str(e)}")
         # エラーが発生してもアプリケーションは継続
 
-@app.get("/")
-async def root():
-    """ルートエンドポイント"""
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Webアプリのメイン画面"""
+    return templates.TemplateResponse("index.html", {"request": request})
+
+@app.get("/api", include_in_schema=False)
+async def api_root():
+    """APIエンドポイント一覧（JSON）"""
     return {
         "message": Config.APP_NAME,
         "version": Config.APP_VERSION,
