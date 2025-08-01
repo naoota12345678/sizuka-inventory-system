@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from datetime import datetime
 import pytz
 import os
 from supabase import create_client, Client
+from typing import Optional
 
 app = FastAPI()
 
@@ -79,5 +80,29 @@ async def get_system_status():
     except Exception as e:
         return {
             "error": f"System check failed: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/debug_inventory")
+async def debug_inventory():
+    """inventoryテーブルの構造確認"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        response = supabase.table('inventory').select('*').limit(3).execute()
+        
+        return {
+            "status": "success",
+            "record_count": len(response.data) if response.data else 0,
+            "columns": list(response.data[0].keys()) if response.data else [],
+            "sample_data": response.data[0] if response.data else None,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
