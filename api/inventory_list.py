@@ -89,26 +89,24 @@ async def get_inventory_list(
         end_idx = start_idx + per_page
         page_items = all_items[start_idx:end_idx]
         
-        # 商品情報を整形（テーブル構造に応じて調整）
+        # 商品情報を整形（正しいテーブル構造に基づく）
         formatted_items = []
         for item in page_items:
-            # 利用可能なフィールドを確認して設定
-            product_code = item.get('product_code') or item.get('id') or item.get('sku') or str(item.get('id', ''))
-            
             formatted_item = {
                 "id": item.get('id'),
-                "product_code": product_code,
+                "common_code": item.get('common_code'),  # 正しいフィールド名
                 "product_name": item.get('product_name', '商品名未設定'),
-                "common_name": item.get('common_name'),  # 直接取得を試す
                 "current_stock": item.get('current_stock', 0),
+                "initial_stock": item.get('initial_stock', 0),
                 "minimum_stock": item.get('minimum_stock', 0),
+                "reorder_point": item.get('reorder_point', 0),
                 "status": get_stock_status(item.get('current_stock', 0), item.get('minimum_stock', 0)),
-                "category": item.get('category'),
-                "unit": item.get('unit', '個'),
-                "unit_price": item.get('unit_price'),
-                "last_updated": item.get('updated_at'),
-                "stock_value": item.get('current_stock', 0) * item.get('unit_price', 0) if item.get('unit_price') else None,
-                "raw_data": item  # デバッグ用：生データも含める
+                "price": item.get('price'),
+                "content": item.get('content', ''),  # 内容量
+                "jan_code": item.get('jan_code'),
+                "reference_date": item.get('reference_date'),
+                "last_updated": item.get('last_updated'),
+                "stock_value": item.get('current_stock', 0) * item.get('price', 0) if item.get('price') else None
             }
             formatted_items.append(formatted_item)
         
