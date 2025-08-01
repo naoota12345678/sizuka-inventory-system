@@ -31,14 +31,8 @@ async def get_inventory_list(
         if not supabase:
             return {"error": "Database connection not configured"}
         
-        # 基本クエリ - product_masterと結合して共通名も取得
-        query = supabase.table('inventory').select('''
-            *,
-            product_master!left(
-                common_code,
-                common_name
-            )
-        ''')
+        # 基本クエリ（まずテーブル構造を確認）
+        query = supabase.table('inventory').select('*')
         
         # カテゴリフィルター
         if category:
@@ -95,19 +89,17 @@ async def get_inventory_list(
         end_idx = start_idx + per_page
         page_items = all_items[start_idx:end_idx]
         
-        # 商品情報を整形
+        # 商品情報を整形（テーブル構造に応じて調整）
         formatted_items = []
         for item in page_items:
-            # 共通名を取得
-            common_name = None
-            if item.get('product_master') and item['product_master']:
-                common_name = item['product_master'][0].get('common_name') if len(item['product_master']) > 0 else None
+            # 利用可能なフィールドを確認して設定
+            product_code = item.get('product_code') or item.get('id') or item.get('sku') or str(item.get('id', ''))
             
             formatted_item = {
                 "id": item.get('id'),
-                "product_code": item.get('product_code'),
-                "product_name": item.get('product_name'),
-                "common_name": common_name,
+                "product_code": product_code,
+                "product_name": item.get('product_name', '商品名未設定'),
+                "common_name": item.get('common_name'),  # 直接取得を試す
                 "current_stock": item.get('current_stock', 0),
                 "minimum_stock": item.get('minimum_stock', 0),
                 "status": get_stock_status(item.get('current_stock', 0), item.get('minimum_stock', 0)),
@@ -115,7 +107,8 @@ async def get_inventory_list(
                 "unit": item.get('unit', '個'),
                 "unit_price": item.get('unit_price'),
                 "last_updated": item.get('updated_at'),
-                "stock_value": item.get('current_stock', 0) * item.get('unit_price', 0) if item.get('unit_price') else None
+                "stock_value": item.get('current_stock', 0) * item.get('unit_price', 0) if item.get('unit_price') else None,
+                "raw_data": item  # デバッグ用：生データも含める
             }
             formatted_items.append(formatted_item)
         
@@ -163,31 +156,31 @@ def get_stock_status(current: int, minimum: int) -> str:
 
 @app.post("/api/update_inventory_minimum")
 async def update_inventory_minimum(
-    product_code: str = Query(..., description="商品コード"),
+    item_id: str = Query(..., description="商品ID"),
     minimum_stock: int = Query(..., description="最小在庫数")
 ):
-    """最小在庫数の更新"""
+    """最小在庫数の更新（IDベース）"""
     try:
         if not supabase:
             return {"error": "Database connection not configured"}
         
-        # 在庫レコードを更新
+        # IDで在庫レコードを更新
         response = supabase.table('inventory').update({
             "minimum_stock": minimum_stock,
             "updated_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-        }).eq('product_code', product_code).execute()
+        }).eq('id', item_id).execute()
         
         if response.data:
             return {
                 "status": "success",
-                "message": f"商品 {product_code} の最小在庫数を {minimum_stock} に更新しました",
+                "message": f"商品ID {item_id} の最小在庫数を {minimum_stock} に更新しました",
                 "data": response.data[0],
                 "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
             }
         else:
             return {
                 "status": "error",
-                "message": f"商品 {product_code} が見つかりません",
+                "message": f"商品ID {item_id} が見つかりません",
                 "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
             }
             
