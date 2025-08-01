@@ -111,5 +111,5 @@ async def test_inventory():
         raise HTTPException(status_code=500, detail=str(e))
 
 # Vercel用のエントリーポイント
-# VercelはFastAPIのappを自動的に認識します
-# mangumは不要です
+# Vercelが認識できるようにappを明示的にエクスポート
+handler = app
