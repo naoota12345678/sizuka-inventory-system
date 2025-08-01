@@ -28,13 +28,17 @@ async def get_system_status():
             "tables_status": {}
         }
         
-        # 既知のテーブルをチェック
+        # 実際のテーブル名をチェック
         tables_to_check = [
-            'inventory',
-            'orders', 
-            'order_items',
-            'sales_daily',
-            'platform'
+            'inventory',           # 在庫管理テーブル
+            'orders',             # 楽天注文テーブル
+            'order_items',        # 楽天注文商品テーブル
+            'sales_daily',        # 日別売上テーブル
+            'platform',           # プラットフォーム管理
+            'product_master',     # 商品マスター
+            'unified_products',   # 統合商品マスター
+            'sales_transactions', # 売上取引テーブル
+            'inventory_transactions' # 在庫取引テーブル
         ]
         
         for table_name in tables_to_check:
