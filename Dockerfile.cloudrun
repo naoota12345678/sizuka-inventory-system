@@ -17,5 +17,5 @@ ENV PORT=8080
 RUN useradd -m -u 1001 appuser && chown -R appuser:appuser /app
 USER appuser
 
-# FastAPIをuvicornで起動
-CMD exec uvicorn main:app --host 0.0.0.0 --port $PORT
+# Cloud Run版メインファイルを使用
+CMD exec uvicorn main_cloudrun:app --host 0.0.0.0 --port $PORT
