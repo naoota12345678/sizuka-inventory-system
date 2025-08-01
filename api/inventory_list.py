@@ -1,74 +1,202 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from datetime import datetime
 import pytz
 import os
-import traceback
+from supabase import create_client, Client
+from typing import Optional
 
 app = FastAPI()
 
+# Supabase接続
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    supabase = None
+
 @app.get("/api/inventory_list")
-async def get_inventory_list():
-    """在庫一覧を取得"""
+async def get_inventory_list(
+    page: Optional[int] = Query(1, description="ページ番号"),
+    per_page: Optional[int] = Query(50, description="1ページあたりの件数"),
+    sort_by: Optional[str] = Query("product_code", description="ソート項目"),
+    sort_order: Optional[str] = Query("asc", description="ソート順序 (asc/desc)"),
+    category: Optional[str] = Query(None, description="カテゴリフィルター"),
+    status_filter: Optional[str] = Query(None, description="在庫状態フィルター (normal/low/out)")
+):
+    """在庫一覧取得API - 現在の在庫状況を表示"""
     try:
-        # 環境変数チェック
-        SUPABASE_URL = os.getenv("SUPABASE_URL")
-        SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+        if not supabase:
+            return {"error": "Database connection not configured"}
         
-        if not SUPABASE_URL or not SUPABASE_KEY:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "error",
-                    "message": "Database credentials not configured",
-                    "has_url": bool(SUPABASE_URL),
-                    "has_key": bool(SUPABASE_KEY),
-                    "items": []
-                }
+        # 基本クエリ - product_masterと結合して共通名も取得
+        query = supabase.table('inventory').select('''
+            *,
+            product_master!left(
+                common_code,
+                common_name
             )
+        ''')
         
-        # Supabase接続を試みる
-        try:
-            from supabase import create_client, Client
-            supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        except Exception as conn_error:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "error",
-                    "message": f"Database connection error: {str(conn_error)}",
-                    "items": []
-                }
-            )
+        # カテゴリフィルター
+        if category:
+            query = query.eq('category', category)
         
-        # データ取得を試みる
-        try:
-            response = supabase.table('inventory').select('*').limit(20).execute()
+        # ソート設定
+        query = query.order(sort_by, desc=(sort_order == 'desc'))
+        
+        # 全件取得して集計
+        all_response = query.execute()
+        all_items = all_response.data if all_response.data else []
+        
+        # 在庫状態でフィルタリング（クライアント側）
+        if status_filter:
+            filtered_items = []
+            for item in all_items:
+                current = item.get('current_stock', 0)
+                minimum = item.get('minimum_stock', 0)
+                
+                if status_filter == 'out' and current == 0:
+                    filtered_items.append(item)
+                elif status_filter == 'low' and 0 < current <= minimum:
+                    filtered_items.append(item)
+                elif status_filter == 'normal' and current > minimum:
+                    filtered_items.append(item)
             
-            return {
-                "status": "success",
-                "count": len(response.data) if response.data else 0,
-                "items": response.data if response.data else [],
-                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            all_items = filtered_items
+        
+        # 統計情報を計算
+        total_items = len(all_items)
+        total_stock_value = 0
+        out_of_stock = 0
+        low_stock = 0
+        normal_stock = 0
+        
+        for item in all_items:
+            current = item.get('current_stock', 0)
+            minimum = item.get('minimum_stock', 0)
+            
+            # 在庫金額（在庫数 × 単価）
+            if item.get('unit_price'):
+                total_stock_value += current * item.get('unit_price', 0)
+            
+            # 在庫状態カウント
+            if current == 0:
+                out_of_stock += 1
+            elif current <= minimum:
+                low_stock += 1
+            else:
+                normal_stock += 1
+        
+        # ページネーション
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        page_items = all_items[start_idx:end_idx]
+        
+        # 商品情報を整形
+        formatted_items = []
+        for item in page_items:
+            # 共通名を取得
+            common_name = None
+            if item.get('product_master') and item['product_master']:
+                common_name = item['product_master'][0].get('common_name') if len(item['product_master']) > 0 else None
+            
+            formatted_item = {
+                "id": item.get('id'),
+                "product_code": item.get('product_code'),
+                "product_name": item.get('product_name'),
+                "common_name": common_name,
+                "current_stock": item.get('current_stock', 0),
+                "minimum_stock": item.get('minimum_stock', 0),
+                "status": get_stock_status(item.get('current_stock', 0), item.get('minimum_stock', 0)),
+                "category": item.get('category'),
+                "unit": item.get('unit', '個'),
+                "unit_price": item.get('unit_price'),
+                "last_updated": item.get('updated_at'),
+                "stock_value": item.get('current_stock', 0) * item.get('unit_price', 0) if item.get('unit_price') else None
             }
-        except Exception as query_error:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "error",
-                    "message": f"Query error: {str(query_error)}",
-                    "items": []
-                }
-            )
-            
+            formatted_items.append(formatted_item)
+        
+        # カテゴリ一覧を取得
+        categories = list(set(item.get('category') for item in all_items if item.get('category')))
+        
+        return {
+            "status": "success",
+            "pagination": {
+                "page": page,
+                "per_page": per_page,
+                "total_items": total_items,
+                "total_pages": (total_items + per_page - 1) // per_page
+            },
+            "summary": {
+                "total_products": total_items,
+                "normal_stock": normal_stock,
+                "low_stock": low_stock,
+                "out_of_stock": out_of_stock,
+                "total_stock_value": total_stock_value,
+                "categories": categories
+            },
+            "items": formatted_items,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
     except Exception as e:
-        # 予期しないエラー
         return JSONResponse(
             status_code=200,
             content={
                 "status": "error",
-                "message": f"Unexpected error: {str(e)}",
-                "traceback": traceback.format_exc(),
+                "message": str(e),
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        )
+
+def get_stock_status(current: int, minimum: int) -> str:
+    """在庫状態を判定"""
+    if current == 0:
+        return "out_of_stock"
+    elif current <= minimum:
+        return "low_stock"
+    else:
+        return "normal"
+
+@app.post("/api/update_inventory_minimum")
+async def update_inventory_minimum(
+    product_code: str = Query(..., description="商品コード"),
+    minimum_stock: int = Query(..., description="最小在庫数")
+):
+    """最小在庫数の更新"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 在庫レコードを更新
+        response = supabase.table('inventory').update({
+            "minimum_stock": minimum_stock,
+            "updated_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }).eq('product_code', product_code).execute()
+        
+        if response.data:
+            return {
+                "status": "success",
+                "message": f"商品 {product_code} の最小在庫数を {minimum_stock} に更新しました",
+                "data": response.data[0],
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"商品 {product_code} が見つかりません",
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+            
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "message": str(e),
                 "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
             }
         )

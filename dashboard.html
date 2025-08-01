@@ -374,22 +374,55 @@
         <!-- 在庫管理タブ -->
         <div id="inventory" class="tab-content">
             <h2>在庫管理</h2>
-            <div class="search-form">
-                <h3>在庫検索</h3>
-                <div class="form-group">
-                    <label>商品名/コード:</label>
-                    <input type="text" id="inventorySearch" placeholder="検索キーワード">
+            
+            <!-- 在庫サマリー -->
+            <div class="dashboard-grid" id="inventorySummary" style="margin-bottom: 20px;">
+                <div class="dashboard-card">
+                    <h3>総商品数</h3>
+                    <div class="value" id="totalProducts">0</div>
+                    <div class="sub-info">登録商品</div>
                 </div>
+                <div class="dashboard-card" style="background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);">
+                    <h3>正常在庫</h3>
+                    <div class="value" id="normalStock">0</div>
+                    <div class="sub-info">適正在庫</div>
+                </div>
+                <div class="dashboard-card" style="background: linear-gradient(135deg, #f6ad55 0%, #ed8936 100%);">
+                    <h3>在庫少</h3>
+                    <div class="value" id="lowStock">0</div>
+                    <div class="sub-info">要発注</div>
+                </div>
+                <div class="dashboard-card" style="background: linear-gradient(135deg, #fc8181 0%, #f56565 100%);">
+                    <h3>在庫切れ</h3>
+                    <div class="value" id="outOfStock">0</div>
+                    <div class="sub-info">緊急対応</div>
+                </div>
+            </div>
+            
+            <div class="search-form">
+                <h3>在庫一覧表示</h3>
                 <div class="form-group">
                     <label>フィルター:</label>
-                    <select id="inventoryFilter">
+                    <select id="inventoryStatusFilter">
                         <option value="">全て表示</option>
-                        <option value="low_stock">在庫不足のみ</option>
-                        <option value="out_of_stock">在庫切れのみ</option>
+                        <option value="normal">正常在庫のみ</option>
+                        <option value="low">在庫少のみ</option>
+                        <option value="out">在庫切れのみ</option>
+                    </select>
+                    <label style="margin-left: 20px;">並び順:</label>
+                    <select id="inventorySortBy">
+                        <option value="product_code">商品コード順</option>
+                        <option value="product_name">商品名順</option>
+                        <option value="current_stock">在庫数順</option>
+                        <option value="updated_at">更新日順</option>
+                    </select>
+                    <select id="inventorySortOrder">
+                        <option value="asc">昇順</option>
+                        <option value="desc">降順</option>
                     </select>
                 </div>
                 <div class="action-buttons">
-                    <button class="btn btn-primary" onclick="searchInventory()">検索</button>
+                    <button class="btn btn-primary" onclick="loadInventoryList()">在庫一覧表示</button>
                     <button class="btn btn-secondary" onclick="exportInventory()">CSVエクスポート</button>
                 </div>
             </div>
@@ -400,6 +433,13 @@
                 <p>在庫データを取得中...</p>
             </div>
             <div id="inventoryResults" class="results-area"></div>
+            
+            <!-- ページネーション -->
+            <div id="inventoryPagination" style="text-align: center; margin-top: 20px; display: none;">
+                <button class="btn btn-secondary" onclick="changeInventoryPage(-1)">← 前へ</button>
+                <span id="pageInfo" style="margin: 0 20px;">1 / 1</span>
+                <button class="btn btn-secondary" onclick="changeInventoryPage(1)">次へ →</button>
+            </div>
         </div>
 
         <!-- 売上分析タブ -->
@@ -595,6 +635,8 @@
             // タブに応じた初期データ読み込み
             if (tabName === 'overview') {
                 refreshDashboard();
+            } else if (tabName === 'inventory') {
+                loadInventoryList();
             }
         }
 
@@ -677,17 +719,22 @@
             }
         }
 
-        // 在庫検索
-        async function searchInventory() {
+        // 在庫一覧の現在のページ
+        let currentInventoryPage = 1;
+        let inventoryData = null;
+
+        // 在庫一覧読み込み
+        async function loadInventoryList() {
             showLoading('inventoryLoading', true);
             
             try {
-                const search = document.getElementById('inventorySearch').value;
-                const filter = document.getElementById('inventoryFilter').value;
+                const statusFilter = document.getElementById('inventoryStatusFilter').value;
+                const sortBy = document.getElementById('inventorySortBy').value;
+                const sortOrder = document.getElementById('inventorySortOrder').value;
                 
-                let url = `${API_BASE}/inventory_search?`;
-                if (search) url += `search=${encodeURIComponent(search)}&`;
-                if (filter === 'low_stock') url += 'low_stock=true&';
+                let url = `${API_BASE}/inventory_list?page=${currentInventoryPage}&per_page=50`;
+                if (statusFilter) url += `&status_filter=${statusFilter}`;
+                url += `&sort_by=${sortBy}&sort_order=${sortOrder}`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -695,49 +742,96 @@
                 showLoading('inventoryLoading', false);
                 
                 if (data.status === 'success') {
-                    displayInventoryResults(data);
-                    showMessage('inventoryMessage', `${data.count}件の商品が見つかりました`, 'success');
+                    inventoryData = data;
+                    updateInventorySummary(data.summary);
+                    displayInventoryList(data);
+                    updatePagination(data.pagination);
+                    showMessage('inventoryMessage', `${data.pagination.total_items}件の商品を取得しました`, 'success');
                 } else {
                     showMessage('inventoryMessage', 'エラー: ' + data.message, 'error');
                 }
                 
             } catch (error) {
                 showLoading('inventoryLoading', false);
-                showMessage('inventoryMessage', '検索エラー: ' + error.message, 'error');
+                showMessage('inventoryMessage', '取得エラー: ' + error.message, 'error');
             }
         }
 
-        // 在庫結果表示
-        function displayInventoryResults(data) {
+        // 在庫サマリー更新
+        function updateInventorySummary(summary) {
+            document.getElementById('totalProducts').textContent = summary.total_products;
+            document.getElementById('normalStock').textContent = summary.normal_stock;
+            document.getElementById('lowStock').textContent = summary.low_stock;
+            document.getElementById('outOfStock').textContent = summary.out_of_stock;
+        }
+
+        // 在庫一覧表示
+        function displayInventoryList(data) {
             let html = '<h3>在庫一覧</h3>';
             
-            if (data.alerts && data.alerts.length > 0) {
-                html += '<div class="message error active" style="margin-bottom: 20px;">';
-                html += `<strong>在庫アラート: ${data.alerts.length}件の商品が要補充です</strong>`;
-                html += '</div>';
-            }
-            
             html += '<table class="results-table">';
-            html += '<tr><th>商品コード</th><th>商品名</th><th>現在庫</th><th>最小在庫</th><th>状態</th></tr>';
+            html += '<tr>';
+            html += '<th>商品コード</th>';
+            html += '<th>商品名</th>';
+            html += '<th>共通名</th>';
+            html += '<th>現在庫</th>';
+            html += '<th>最小在庫</th>';
+            html += '<th>単位</th>';
+            html += '<th>状態</th>';
+            html += '<th>最終更新</th>';
+            html += '</tr>';
             
             if (data.items && data.items.length > 0) {
                 data.items.forEach(item => {
-                    const isLowStock = item.current_stock <= item.minimum_stock;
-                    const statusClass = isLowStock ? 'status-warning' : 'status-success';
-                    const statusText = isLowStock ? '要補充' : '正常';
+                    let statusClass = 'status-success';
+                    let statusText = '正常';
+                    
+                    if (item.status === 'out_of_stock') {
+                        statusClass = 'status-error';
+                        statusText = '在庫切れ';
+                    } else if (item.status === 'low_stock') {
+                        statusClass = 'status-warning';
+                        statusText = '在庫少';
+                    }
+                    
+                    const lastUpdated = item.last_updated ? 
+                        new Date(item.last_updated).toLocaleDateString('ja-JP') : '-';
                     
                     html += `<tr>
                         <td>${item.product_code}</td>
                         <td>${item.product_name}</td>
-                        <td>${item.current_stock}</td>
-                        <td>${item.minimum_stock}</td>
+                        <td>${item.common_name || '-'}</td>
+                        <td style="text-align: right;">${item.current_stock}</td>
+                        <td style="text-align: right;">${item.minimum_stock}</td>
+                        <td>${item.unit || '個'}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td>${lastUpdated}</td>
                     </tr>`;
                 });
+            } else {
+                html += '<tr><td colspan="8" style="text-align: center;">データがありません</td></tr>';
             }
             
             html += '</table>';
             document.getElementById('inventoryResults').innerHTML = html;
+        }
+
+        // ページネーション更新
+        function updatePagination(pagination) {
+            const pageInfo = document.getElementById('pageInfo');
+            pageInfo.textContent = `${pagination.page} / ${pagination.total_pages}`;
+            
+            const paginationDiv = document.getElementById('inventoryPagination');
+            paginationDiv.style.display = pagination.total_pages > 1 ? 'block' : 'none';
+        }
+
+        // ページ変更
+        function changeInventoryPage(direction) {
+            const newPage = currentInventoryPage + direction;
+            if (inventoryData && newPage >= 1 && newPage <= inventoryData.pagination.total_pages) {
+                currentInventoryPage = newPage;
+                loadInventoryList();
+            }
         }
 
         // 売上検索
