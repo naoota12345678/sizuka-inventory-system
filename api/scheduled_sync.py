@@ -19,8 +19,10 @@ else:
     supabase = None
 
 @app.post("/api/scheduled_sync")
-async def scheduled_sync():
-    """定時実行用の同期処理 - スプレッドシート同期 → 楽天同期"""
+async def scheduled_sync(
+    bulk_sync_days: Optional[int] = Query(None, description="過去何日分を一括同期するか")
+):
+    """定時実行用の同期処理 - マッピング同期 → 楽天同期（午前3時実行）"""
     try:
         if not supabase:
             return {"error": "Database connection not configured"}
@@ -31,21 +33,36 @@ async def scheduled_sync():
             "steps": []
         }
         
-        # ステップ1: スプレッドシート同期
+        # ステップ1: スプレッドシート（マッピング）同期
         try:
-            # 実際のスプレッドシート同期APIを呼び出す
-            # TODO: sync-sheets APIのURLを適切に設定
-            sheets_result = {
-                "step": "spreadsheet_sync",
-                "status": "success",
-                "message": "スプレッドシート同期は別途実装が必要です",
-                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-            }
-            results["steps"].append(sheets_result)
+            # TODO: 実際のスプレッドシート同期API呼び出し
+            async with httpx.AsyncClient() as client:
+                # sync-sheetsエンドポイントを呼び出し
+                sheets_response = await client.post(
+                    f"{os.getenv('BASE_URL', 'https://sizuka-inventory-system.vercel.app')}/sync-sheets",
+                    timeout=300  # 5分タイムアウト
+                )
+                
+                if sheets_response.status_code == 200:
+                    sheets_data = sheets_response.json()
+                    results["steps"].append({
+                        "step": "mapping_sync",
+                        "status": "success",
+                        "message": "マッピング同期完了",
+                        "data": sheets_data,
+                        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                    })
+                else:
+                    results["steps"].append({
+                        "step": "mapping_sync",
+                        "status": "error",
+                        "message": f"HTTP {sheets_response.status_code}",
+                        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                    })
             
         except Exception as e:
             results["steps"].append({
-                "step": "spreadsheet_sync",
+                "step": "mapping_sync",
                 "status": "error",
                 "message": str(e),
                 "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
@@ -53,15 +70,31 @@ async def scheduled_sync():
         
         # ステップ2: 楽天注文同期
         try:
-            # 楽天注文同期APIを呼び出す
-            # TODO: sync-orders APIのURLを適切に設定
-            rakuten_result = {
-                "step": "rakuten_sync",
-                "status": "success",
-                "message": "楽天同期は別途実装が必要です",
-                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-            }
-            results["steps"].append(rakuten_result)
+            days_to_sync = bulk_sync_days or 1  # デフォルトは1日分
+            
+            async with httpx.AsyncClient() as client:
+                # sync-ordersエンドポイントを呼び出し
+                rakuten_response = await client.get(
+                    f"{os.getenv('BASE_URL', 'https://sizuka-inventory-system.vercel.app')}/sync-orders?days={days_to_sync}",
+                    timeout=600  # 10分タイムアウト
+                )
+                
+                if rakuten_response.status_code == 200:
+                    rakuten_data = rakuten_response.json()
+                    results["steps"].append({
+                        "step": "rakuten_sync",
+                        "status": "success",
+                        "message": f"楽天同期完了（{days_to_sync}日分）",
+                        "data": rakuten_data,
+                        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                    })
+                else:
+                    results["steps"].append({
+                        "step": "rakuten_sync",
+                        "status": "error",
+                        "message": f"HTTP {rakuten_response.status_code}",
+                        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                    })
             
         except Exception as e:
             results["steps"].append({
