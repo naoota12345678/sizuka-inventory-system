@@ -1,0 +1,5 @@
+# Minimal dependencies for Vercel deployment
+fastapi==0.104.1
+supabase==2.0.3
+python-dotenv==1.0.0
+pytz==2023.3
