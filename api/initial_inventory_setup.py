@@ -69,9 +69,9 @@ async def setup_initial_inventory():
         
         for item in INITIAL_INVENTORY_DATA:
             try:
-                # 在庫テーブルへの登録/更新
+                # まずテーブル構造を確認して適切なフィールド名を使用
+                # 在庫テーブルへの登録/更新（フィールド名を調整）
                 inventory_data = {
-                    "product_code": item["product_code"],
                     "product_name": item["product_name"],
                     "current_stock": item["quantity"],
                     "minimum_stock": 5,  # デフォルト最小在庫
@@ -80,6 +80,11 @@ async def setup_initial_inventory():
                     "category": "食品" if item["price"] == 800 else "物販",
                     "updated_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
                 }
+                
+                # product_codeフィールドが存在する場合のみ追加
+                if "product_code" in item:
+                    # テーブル構造に応じてフィールド名を調整
+                    inventory_data["sku"] = item["product_code"]  # または適切なフィールド名
                 
                 # Upsert（既存データがあれば更新、なければ挿入）
                 inventory_response = supabase.table('inventory').upsert(inventory_data).execute()
@@ -187,11 +192,11 @@ async def calculate_current_inventory():
             # 現在在庫 = 初期在庫 - 売上数量
             current_stock = max(0, initial_stock - sold_quantity)
             
-            # 在庫テーブルを更新
+            # 在庫テーブルを更新（product_name で検索）
             update_response = supabase.table('inventory').update({
                 "current_stock": current_stock,
                 "updated_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-            }).eq('product_code', product_code).execute()
+            }).eq('product_name', item["product_name"]).execute()
             
             results["updates"].append({
                 "product_code": product_code,
