@@ -106,3 +106,130 @@ async def debug_inventory():
             "message": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
+
+@app.get("/api/convert_sales_data")
+async def convert_sales_data():
+    """既存の楽天注文データを売上データに変換（統合版）"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # sales_masterテーブルが存在するかチェック
+        try:
+            test_query = supabase.table('sales_master').select('count').limit(1).execute()
+            table_exists = True
+        except:
+            table_exists = False
+        
+        if not table_exists:
+            return {
+                "status": "error",
+                "message": "sales_masterテーブルが存在しません。まずデータベースに以下のSQLを実行してください：",
+                "sql": """
+CREATE TABLE sales_master (
+    id SERIAL PRIMARY KEY,
+    sale_date DATE NOT NULL,
+    common_code VARCHAR(50) NOT NULL,
+    platform_name VARCHAR(50) NOT NULL,
+    platform_order_id VARCHAR(100),
+    quantity INTEGER NOT NULL,
+    unit_price DECIMAL(10,2),
+    total_amount DECIMAL(10,2),
+    is_mapped BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_sales_date_common ON sales_master(sale_date, common_code);
+CREATE INDEX idx_sales_platform ON sales_master(platform_name);
+"""
+            }
+        
+        # 楽天注文データを取得
+        orders = supabase.table('orders').select('*').execute()
+        
+        if not orders.data:
+            return {
+                "status": "warning",
+                "message": "変換対象の注文データがありません"
+            }
+        
+        converted_count = 0
+        skipped_count = 0
+        
+        # 各注文を処理
+        for order in orders.data:
+            order_id = order['id']
+            order_number = order.get('order_number')
+            order_date = order.get('order_date', order.get('order_datetime', ''))[:10]
+            
+            # この注文の商品を取得
+            order_items = supabase.table('order_items').select('*').eq('order_id', order_id).execute()
+            
+            if not order_items.data:
+                continue
+            
+            for item in order_items.data:
+                product_name = item.get('product_name', '')
+                product_code = item.get('product_code', product_name)
+                quantity = item.get('quantity', 1)
+                price = float(item.get('price', 0))
+                
+                # 簡易マッピング（商品名ベース）
+                common_code = get_common_code_from_name(product_name)
+                
+                # 重複チェック
+                existing = supabase.table('sales_master').select('id').eq('platform_order_id', order_number).eq('common_code', common_code).execute()
+                
+                if not existing.data:
+                    # 売上データを挿入
+                    sale_record = {
+                        'sale_date': order_date,
+                        'common_code': common_code,
+                        'platform_name': 'rakuten',
+                        'platform_order_id': order_number,
+                        'quantity': quantity,
+                        'unit_price': price,
+                        'total_amount': price * quantity,
+                        'is_mapped': not common_code.startswith('UNMAPPED_')
+                    }
+                    
+                    try:
+                        supabase.table('sales_master').insert(sale_record).execute()
+                        converted_count += 1
+                    except Exception as e:
+                        print(f"挿入エラー: {str(e)}")
+                        skipped_count += 1
+                else:
+                    skipped_count += 1
+        
+        return {
+            "status": "success",
+            "message": f"楽天売上データ変換完了: {converted_count}件変換、{skipped_count}件スキップ",
+            "converted_count": converted_count,
+            "skipped_count": skipped_count,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+def get_common_code_from_name(product_name: str) -> str:
+    """商品名から共通コードを推定（簡易版）"""
+    product_name_lower = product_name.lower()
+    
+    # 既知の商品パターン
+    if 'ふわふわスモークサーモン' in product_name or 'ふわふわスモーク' in product_name:
+        return 'CM042'
+    elif 'スモークサーモンチップ' in product_name or 'サーモンチップ' in product_name:
+        return 'CM043'
+    elif 'コーンフレーク' in product_name:
+        return 'C01'
+    elif 'にんじんフレーク' in product_name:
+        return 'C02'
+    else:
+        # 未マッピング商品
+        return f'UNMAPPED_{product_name.replace(" ", "_")[:20]}'
