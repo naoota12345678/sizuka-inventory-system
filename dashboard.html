@@ -365,6 +365,7 @@
                 <button class="btn btn-primary" onclick="refreshDashboard()">ダッシュボード更新</button>
                 <button class="btn btn-secondary" onclick="checkSystemStatus()">システム診断</button>
                 <button class="btn btn-secondary" onclick="checkSpreadsheetSync()">スプレッドシート同期確認</button>
+                <button class="btn btn-secondary" onclick="checkInventoryMapping()">在庫マッピング確認</button>
             </div>
             
             <div id="overviewMessage" class="message"></div>
@@ -931,6 +932,138 @@
 
         function viewSyncHistory() {
             showMessage('integrationMessage', '同期履歴機能は準備中です', 'error');
+        }
+
+        // 在庫マッピング確認
+        async function checkInventoryMapping() {
+            try {
+                const response = await fetch(`${API_BASE}/inventory_mapping_check`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = '<h3>在庫データマッピング状況</h3>';
+                    
+                    // データフロー表示
+                    if (data.data_flow && data.data_flow.length > 0) {
+                        html += '<h4>データフロー</h4>';
+                        html += '<table class="results-table">';
+                        html += '<tr><th>順序</th><th>処理</th><th>ソース</th><th>ターゲット</th><th>説明</th></tr>';
+                        
+                        data.data_flow.forEach(flow => {
+                            html += `<tr>
+                                <td>${flow.step}</td>
+                                <td>${flow.process}</td>
+                                <td>${flow.source}</td>
+                                <td>${flow.target}</td>
+                                <td>${flow.description}</td>
+                            </tr>`;
+                        });
+                        
+                        html += '</table>';
+                    }
+                    
+                    // 在庫データの所在
+                    if (data.inventory_locations) {
+                        html += '<h4>在庫データの所在</h4>';
+                        
+                        // 現在在庫
+                        if (data.inventory_locations.current_stock && data.inventory_locations.current_stock.length > 0) {
+                            html += '<h5>📦 現在在庫データ</h5>';
+                            data.inventory_locations.current_stock.forEach(location => {
+                                html += `<p><strong>${location.table}</strong>: ${location.fields.join(', ')}</p>`;
+                                html += `<pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-size: 12px;">${JSON.stringify(location.sample_value, null, 2)}</pre>`;
+                            });
+                        }
+                        
+                        // 商品情報
+                        if (data.inventory_locations.product_info && data.inventory_locations.product_info.length > 0) {
+                            html += '<h5>🏷️ 商品情報</h5>';
+                            data.inventory_locations.product_info.forEach(location => {
+                                html += `<p><strong>${location.table}</strong>: ${location.fields.join(', ')}</p>`;
+                                html += `<pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-size: 12px;">${JSON.stringify(location.sample_value, null, 2)}</pre>`;
+                            });
+                        }
+                        
+                        // 売上データ
+                        if (data.inventory_locations.sales_data && data.inventory_locations.sales_data.length > 0) {
+                            html += '<h5>💰 売上データ</h5>';
+                            data.inventory_locations.sales_data.forEach(location => {
+                                html += `<p><strong>${location.table}</strong>: ${location.fields.join(', ')}</p>`;
+                                html += `<pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-size: 12px;">${JSON.stringify(location.sample_value, null, 2)}</pre>`;
+                            });
+                        }
+                    }
+                    
+                    // テーブル構造一覧
+                    if (data.tables) {
+                        html += '<h4>テーブル構造一覧</h4>';
+                        html += '<table class="results-table">';
+                        html += '<tr><th>テーブル</th><th>存在</th><th>レコード数</th><th>在庫関連フィールド</th></tr>';
+                        
+                        for (const [tableName, tableInfo] of Object.entries(data.tables)) {
+                            const exists = tableInfo.exists ? '✅' : '❌';
+                            const recordCount = tableInfo.record_count || 0;
+                            const inventoryFields = tableInfo.inventory_related_fields ? tableInfo.inventory_related_fields.join(', ') : '-';
+                            
+                            html += `<tr>
+                                <td>${tableName}</td>
+                                <td>${exists}</td>
+                                <td>${recordCount}</td>
+                                <td>${inventoryFields}</td>
+                            </tr>`;
+                        }
+                        
+                        html += '</table>';
+                    }
+                    
+                    document.getElementById('overviewMessage').className = 'message success active';
+                    document.getElementById('overviewMessage').textContent = '在庫マッピング状況を取得しました';
+                    document.getElementById('systemInfo').innerHTML = html;
+                    
+                } else {
+                    showMessage('overviewMessage', 'エラー: ' + data.message, 'error');
+                }
+                
+            } catch (error) {
+                showMessage('overviewMessage', 'マッピング確認エラー: ' + error.message, 'error');
+            }
+        }
+
+        // 商品検索機能
+        async function traceInventoryData() {
+            const searchTerm = prompt('商品名または商品コードを入力してください:');
+            if (!searchTerm) return;
+            
+            try {
+                const response = await fetch(`${API_BASE}/inventory_data_trace?search_term=${encodeURIComponent(searchTerm)}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = `<h3>「${searchTerm}」の検索結果</h3>`;
+                    
+                    if (data.found_in && data.found_in.length > 0) {
+                        data.found_in.forEach(result => {
+                            if (result.matches) {
+                                html += `<h4>${result.table} テーブル (${result.match_count}件)</h4>`;
+                                result.matches.forEach(match => {
+                                    html += `<p><strong>マッチフィールド:</strong> ${match.matched_field} = "${match.matched_value}"</p>`;
+                                    html += `<pre style="background: #f5f5f5; padding: 10px; border-radius: 5px; font-size: 12px;">${JSON.stringify(match.record, null, 2)}</pre>`;
+                                });
+                            }
+                        });
+                    } else {
+                        html += '<p>該当するデータが見つかりませんでした。</p>';
+                    }
+                    
+                    document.getElementById('systemInfo').innerHTML = html;
+                    showMessage('overviewMessage', `「${searchTerm}」の検索が完了しました`, 'success');
+                } else {
+                    showMessage('overviewMessage', 'エラー: ' + data.message, 'error');
+                }
+                
+            } catch (error) {
+                showMessage('overviewMessage', '検索エラー: ' + error.message, 'error');
+            }
         }
 
         // スプレッドシート同期確認
