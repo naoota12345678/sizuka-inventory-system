@@ -110,9 +110,6 @@ async def test_inventory():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Vercel用のハンドラー
-def handler(request, context=None):
-    """Vercel用エントリーポイント"""
-    from mangum import Mangum
-    asgi_handler = Mangum(app)
-    return asgi_handler(request, context)
+# Vercel用のエントリーポイント
+# VercelはFastAPIのappを自動的に認識します
+# mangumは不要です
