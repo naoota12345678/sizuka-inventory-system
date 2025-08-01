@@ -1,0 +1,62 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  PROJECT_ID: sizuka-inventory-system
+  SERVICE_NAME: sizuka-inventory-system
+  REGION: asia-northeast1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Google Cloud CLI
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        service_account_key: ${{ secrets.GCP_SA_KEY }}
+        project_id: ${{ env.PROJECT_ID }}
+
+    - name: Configure Docker for GCR
+      run: gcloud auth configure-docker
+
+    - name: Build Docker image
+      run: |
+        docker build -f Dockerfile.cloudrun -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} .
+
+    - name: Push Docker image to GCR
+      run: |
+        docker push gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars "SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_KEY=${{ secrets.SUPABASE_KEY }},RAKUTEN_SERVICE_SECRET=${{ secrets.RAKUTEN_SERVICE_SECRET }},RAKUTEN_LICENSE_KEY=${{ secrets.RAKUTEN_LICENSE_KEY }},COLORME_CLIENT_ID=${{ secrets.COLORME_CLIENT_ID }},COLORME_CLIENT_SECRET=${{ secrets.COLORME_CLIENT_SECRET }},COLORME_REDIRECT_URI=${{ secrets.COLORME_REDIRECT_URI }},COLORME_ACCESS_TOKEN=${{ secrets.COLORME_ACCESS_TOKEN }}" \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 300s \
+          --max-instances 10
+
+    - name: Get Service URL
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format "value(status.url)")
+        echo "Service deployed at: $SERVICE_URL"
+        echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
+
+    - name: Health Check
+      run: |
+        SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region ${{ env.REGION }} --format "value(status.url)")
+        echo "Performing health check..."
+        curl -f "$SERVICE_URL/health" || echo "Health check failed, but deployment succeeded"

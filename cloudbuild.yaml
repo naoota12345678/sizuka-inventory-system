@@ -1,12 +1,12 @@
 steps:
   # Cloud Run版Dockerイメージのビルド
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-f', 'Dockerfile.cloudrun', '-t', 'gcr.io/$PROJECT_ID/sizuka-inventory:$SHORT_SHA', '.']
+    args: ['build', '-f', 'Dockerfile.cloudrun', '-t', 'gcr.io/$PROJECT_ID/sizuka-inventory:latest', '.']
     timeout: 1200s
 
   # イメージをContainer Registryにプッシュ  
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/sizuka-inventory:$SHORT_SHA']
+    args: ['push', 'gcr.io/$PROJECT_ID/sizuka-inventory:latest']
 
   # Cloud Runにデプロイ
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -16,7 +16,7 @@ steps:
       - 'deploy'
       - 'sizuka-inventory-system'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/sizuka-inventory:$SHORT_SHA'
+      - 'gcr.io/$PROJECT_ID/sizuka-inventory:latest'
       - '--region'
       - 'asia-northeast1'
       - '--platform'
@@ -38,4 +38,4 @@ options:
   machineType: 'E2_HIGHCPU_8'
 
 images:
-  - 'gcr.io/$PROJECT_ID/sizuka-inventory:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/sizuka-inventory:latest'
