@@ -412,10 +412,10 @@
                     </select>
                     <label style="margin-left: 20px;">並び順:</label>
                     <select id="inventorySortBy">
-                        <option value="product_code">商品コード順</option>
+                        <option value="common_code">共通コード順</option>
                         <option value="product_name">商品名順</option>
                         <option value="current_stock">在庫数順</option>
-                        <option value="updated_at">更新日順</option>
+                        <option value="last_updated">更新日順</option>
                     </select>
                     <select id="inventorySortOrder">
                         <option value="asc">昇順</option>
@@ -772,12 +772,13 @@
             
             html += '<table class="results-table">';
             html += '<tr>';
-            html += '<th>商品コード</th>';
+            html += '<th>共通コード</th>';
             html += '<th>商品名</th>';
-            html += '<th>共通名</th>';
+            html += '<th>内容量</th>';
             html += '<th>現在庫</th>';
+            html += '<th>初期在庫</th>';
             html += '<th>最小在庫</th>';
-            html += '<th>単位</th>';
+            html += '<th>価格</th>';
             html += '<th>状態</th>';
             html += '<th>最終更新</th>';
             html += '</tr>';
@@ -799,18 +800,19 @@
                         new Date(item.last_updated).toLocaleDateString('ja-JP') : '-';
                     
                     html += `<tr>
-                        <td>${item.product_code}</td>
+                        <td>${item.common_code || '-'}</td>
                         <td>${item.product_name}</td>
-                        <td>${item.common_name || '-'}</td>
+                        <td>${item.content || '-'}</td>
                         <td style="text-align: right;">${item.current_stock}</td>
+                        <td style="text-align: right;">${item.initial_stock || '-'}</td>
                         <td style="text-align: right;">${item.minimum_stock}</td>
-                        <td>${item.unit || '個'}</td>
+                        <td style="text-align: right;">¥${item.price ? item.price.toLocaleString() : '-'}</td>
                         <td><span class="status-badge ${statusClass}">${statusText}</span></td>
                         <td>${lastUpdated}</td>
                     </tr>`;
                 });
             } else {
-                html += '<tr><td colspan="8" style="text-align: center;">データがありません</td></tr>';
+                html += '<tr><td colspan="9" style="text-align: center;">データがありません</td></tr>';
             }
             
             html += '</table>';

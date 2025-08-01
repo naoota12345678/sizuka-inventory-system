@@ -21,7 +21,7 @@ else:
 async def get_inventory_list(
     page: Optional[int] = Query(1, description="ページ番号"),
     per_page: Optional[int] = Query(50, description="1ページあたりの件数"),
-    sort_by: Optional[str] = Query("product_code", description="ソート項目"),
+    sort_by: Optional[str] = Query("common_code", description="ソート項目"),
     sort_order: Optional[str] = Query("asc", description="ソート順序 (asc/desc)"),
     category: Optional[str] = Query(None, description="カテゴリフィルター"),
     status_filter: Optional[str] = Query(None, description="在庫状態フィルター (normal/low/out)")
