@@ -80,7 +80,7 @@ async def root():
     """メイン画面"""
     return {
         "message": "SIZUKA在庫管理システム - Cloud Run版",
-        "version": "2.0.0",
+        "version": "2.0.1",
         "status": "running",
         "endpoints": {
             "inventory": "/api/inventory_list",
