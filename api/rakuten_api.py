@@ -270,7 +270,7 @@ class RakutenAPI:
         return {"success": success_count, "error": error_count}
 
     def _prepare_item_data(self, item: Dict, order_id: int, is_parent: bool = False, is_child: bool = False, parent_product_code: str = "") -> Dict:
-        """商品データを準備（現在のスキーマに合わせて調整）"""
+        """商品データを準備（拡張版：より多くの楽天情報を取得）"""
         # 現在のorder_itemsテーブルのスキーマに合わせる
         # カラム: id, order_id, product_code, product_name, quantity, price, created_at
         
@@ -278,13 +278,58 @@ class RakutenAPI:
         quantity = int(item.get("units", 0))
         unit_price = float(item.get("price", 0))
         
+        # 楽天APIから取得可能な豊富な情報を抽出
+        jan_code = item.get("janCode", "")
+        category_path = item.get("categoryPathName", "")
+        brand_name = item.get("brandName", "")
+        
+        # 商品説明から重要情報を抽出
+        item_description = item.get("itemDescription", "")
+        
+        # より詳細な商品コード（楽天の管理商品番号）
+        rakuten_item_number = item.get("itemNumber", "")
+        rakuten_variant_id = item.get("variantId", "")
+        
+        # 商品URL（画像取得用）
+        item_url = item.get("itemUrl", "")
+        
+        # より詳細な価格情報
+        original_price = float(item.get("originalPrice", 0))
+        discount_price = float(item.get("discountPrice", 0))
+        
+        # 商品重量・サイズ情報
+        weight = item.get("weight", "")
+        size_info = item.get("sizeInfo", "")
+        
+        # ショップ情報
+        shop_item_code = item.get("shopItemCode", "")
+        
         return {
             "order_id": order_id,
             "product_code": str(item.get("itemId", "")),
             "product_name": item_name,
             "quantity": quantity,
-            "price": unit_price,  # order_itemsテーブルではpriceカラム（単価）
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "price": unit_price,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            
+            # 追加情報（JSONBカラムに保存）
+            "extended_info": {
+                "jan_code": jan_code,
+                "category_path": category_path,
+                "brand_name": brand_name,
+                "item_description": item_description[:500],  # 500文字まで
+                "rakuten_item_number": rakuten_item_number,
+                "rakuten_variant_id": rakuten_variant_id,
+                "item_url": item_url,
+                "original_price": original_price,
+                "discount_price": discount_price,
+                "weight": weight,
+                "size_info": size_info,
+                "shop_item_code": shop_item_code,
+                "is_parent": is_parent,
+                "is_child": is_child,
+                "parent_product_code": parent_product_code
+            }
         }
 
     def _save_parent_and_children(self, parent_item: Dict, order_id: int, order_number: str) -> int:
