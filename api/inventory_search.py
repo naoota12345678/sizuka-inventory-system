@@ -24,23 +24,18 @@ async def search_inventory(
     min_stock: Optional[int] = Query(None, description="最小在庫数で絞り込み"),
     limit: Optional[int] = Query(20, description="取得件数")
 ):
-    """在庫検索・フィルター機能"""
+    """在庫検索・フィルター機能（修正版）"""
     try:
         if not supabase:
             return {"error": "Database connection not configured", "items": []}
         
-        # クエリ構築
+        # 基本クエリ
         query = supabase.table('inventory').select('*')
         
-        # 検索条件
+        # 検索条件（修正版）
         if search:
-            # 商品名または商品コードで検索
-            query = query.or_(f"product_name.ilike.%{search}%,common_code.ilike.%{search}%")
-        
-        # 在庫不足フィルター
-        if low_stock:
-            # current_stock が minimum_stock 以下の商品
-            query = query.lte('current_stock', 'minimum_stock')
+            # 商品名で検索
+            query = query.ilike('product_name', f'%{search}%')
         
         # 最小在庫数フィルター
         if min_stock is not None:
@@ -54,17 +49,22 @@ async def search_inventory(
         
         response = query.execute()
         
+        # 在庫不足商品のフィルタリング（クライアント側で実行）
+        items = response.data if response.data else []
+        
+        if low_stock:
+            items = [item for item in items if item['current_stock'] <= item['minimum_stock']]
+        
         # 在庫不足アラート
         alerts = []
-        if response.data:
-            for item in response.data:
-                if item['current_stock'] <= item['minimum_stock']:
-                    alerts.append({
-                        "product_name": item['product_name'],
-                        "current_stock": item['current_stock'],
-                        "minimum_stock": item['minimum_stock'],
-                        "shortage": item['minimum_stock'] - item['current_stock']
-                    })
+        for item in items:
+            if item['current_stock'] <= item['minimum_stock']:
+                alerts.append({
+                    "product_name": item['product_name'],
+                    "current_stock": item['current_stock'],
+                    "minimum_stock": item['minimum_stock'],
+                    "shortage": item['minimum_stock'] - item['current_stock']
+                })
         
         return {
             "status": "success",
@@ -74,8 +74,8 @@ async def search_inventory(
                 "min_stock": min_stock,
                 "limit": limit
             },
-            "count": len(response.data) if response.data else 0,
-            "items": response.data if response.data else [],
+            "count": len(items),
+            "items": items,
             "alerts": alerts,
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }

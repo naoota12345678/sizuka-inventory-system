@@ -56,9 +56,9 @@ async def search_sales(
         if end_date:
             query = query.lte('summary_date', end_date)
         
-        # 商品検索
+        # 商品検索（修正版）
         if product_search:
-            query = query.or_(f"product_name.ilike.%{product_search}%,product_code.ilike.%{product_search}%")
+            query = query.ilike('product_name', f'%{product_search}%')
         
         # ソート
         if sort_by == "sales":
