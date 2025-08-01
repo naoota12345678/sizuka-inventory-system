@@ -364,6 +364,7 @@
             <div class="action-buttons">
                 <button class="btn btn-primary" onclick="refreshDashboard()">ダッシュボード更新</button>
                 <button class="btn btn-secondary" onclick="checkSystemStatus()">システム診断</button>
+                <button class="btn btn-secondary" onclick="checkSpreadsheetSync()">スプレッドシート同期確認</button>
             </div>
             
             <div id="overviewMessage" class="message"></div>
@@ -836,6 +837,93 @@
 
         function viewSyncHistory() {
             showMessage('integrationMessage', '同期履歴機能は準備中です', 'error');
+        }
+
+        // スプレッドシート同期確認
+        async function checkSpreadsheetSync() {
+            try {
+                const response = await fetch(`${API_BASE}/spreadsheet_sync_check`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    let html = '<h3>スプレッドシート同期状況</h3>';
+                    
+                    // 同期状況サマリー
+                    html += '<div class="dashboard-grid" style="margin-bottom: 20px;">';
+                    
+                    if (data.sync_status.product_master) {
+                        const pm = data.sync_status.product_master;
+                        html += `<div class="dashboard-card">
+                            <h3>商品マスター</h3>
+                            <div class="value">${pm.total_count}件</div>
+                            <div class="sub-info">共通コード付き: ${pm.with_common_code}件 (${pm.mapping_rate}%)</div>
+                        </div>`;
+                    }
+                    
+                    if (data.sync_status.unified_products) {
+                        const up = data.sync_status.unified_products;
+                        html += `<div class="dashboard-card">
+                            <h3>統合商品</h3>
+                            <div class="value">${up.total_count}件</div>
+                            <div class="sub-info">ユニークコード: ${up.unique_common_codes}件</div>
+                        </div>`;
+                    }
+                    
+                    if (data.mapping_stats) {
+                        const ms = data.mapping_stats;
+                        html += `<div class="dashboard-card">
+                            <h3>マッピング率</h3>
+                            <div class="value">${ms.coverage_percentage}%</div>
+                            <div class="sub-info">未マッピング: ${ms.unmapped_products}件</div>
+                        </div>`;
+                    }
+                    
+                    html += '</div>';
+                    
+                    // 未マッピング商品
+                    if (data.mapping_stats && data.mapping_stats.unmapped_samples && data.mapping_stats.unmapped_samples.length > 0) {
+                        html += '<h4>未マッピング商品（要確認）</h4>';
+                        html += '<table class="results-table">';
+                        html += '<tr><th>商品コード</th><th>商品名</th><th>アクション</th></tr>';
+                        
+                        data.mapping_stats.unmapped_samples.forEach(item => {
+                            html += `<tr>
+                                <td>${item.product_code}</td>
+                                <td>${item.product_name}</td>
+                                <td><button class="btn btn-primary" style="padding: 5px 10px; font-size: 12px;" 
+                                    onclick="searchCommonCode('${item.product_code}')">共通コード検索</button></td>
+                            </tr>`;
+                        });
+                        
+                        html += '</table>';
+                    }
+                    
+                    document.getElementById('overviewMessage').className = 'message success active';
+                    document.getElementById('overviewMessage').textContent = 'スプレッドシート同期状況を取得しました';
+                    document.getElementById('systemInfo').innerHTML = html;
+                    
+                } else {
+                    showMessage('overviewMessage', 'エラー: ' + data.message, 'error');
+                }
+                
+            } catch (error) {
+                showMessage('overviewMessage', '同期確認エラー: ' + error.message, 'error');
+            }
+        }
+
+        async function searchCommonCode(code) {
+            try {
+                const response = await fetch(`${API_BASE}/common_code_search?code=${encodeURIComponent(code)}`);
+                const data = await response.json();
+                
+                if (data.status === 'success' && data.results.length > 0) {
+                    alert(`共通コード: ${data.results[0].common_code}\n共通名: ${data.results[0].common_name}`);
+                } else {
+                    alert('共通コードが見つかりません。スプレッドシートで設定してください。');
+                }
+            } catch (error) {
+                alert('検索エラー: ' + error.message);
+            }
         }
 
         // 名寄せ管理関数
