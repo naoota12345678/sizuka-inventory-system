@@ -27,7 +27,7 @@ def health_check():
 
 @app.get("/api/python")
 def hello_python():
-    return {"message": "Hello from Python"}
+    return {"message": "Hello from Python!", "version": "1.0"}
 
 @app.get("/api/favicon.ico")
 def favicon():
