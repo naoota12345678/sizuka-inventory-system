@@ -1,34 +1,11 @@
-from fastapi import FastAPI, Response
-from fastapi.responses import JSONResponse
-import os
-from datetime import datetime
-import pytz
+from fastapi import FastAPI
 
 app = FastAPI()
 
 @app.get("/api")
-def root():
-    return {
-        "status": "success",
-        "message": "Sizuka Inventory System API は正常に動作しています",
-        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat(),
-        "endpoints": [
-            "GET /api - システム状態確認",
-            "GET /api/health - ヘルスチェック"
-        ]
-    }
-
-@app.get("/api/health")
-def health_check():
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-    }
+def hello_world():
+    return {"message": "Hello from FastAPI"}
 
 @app.get("/api/python")
 def hello_python():
-    return {"message": "Hello from Python!", "version": "1.0"}
-
-@app.get("/api/favicon.ico")
-def favicon():
-    return Response(status_code=204)
+    return {"message": "Hello from Python", "status": "working"}
