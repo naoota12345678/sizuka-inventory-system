@@ -1241,7 +1241,7 @@ async def analyze_rakuten_sku_structure():
         
         # 重要なファミリーのみ表示（データ量制限）
         important_families = {k: v for k, v in sku_analysis["sku_families"].items() 
-                            if len(v["skus"]) > 1}[:10]
+                            if len(v["skus"]) > 1}
         sku_analysis["sku_families"] = dict(list(important_families.items())[:10])
         
         return {
