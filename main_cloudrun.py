@@ -569,26 +569,21 @@ async def get_rakuten_product_variations(
         # 商品詳細をSupabaseから取得
         if supabase:
             order_items = supabase.table('order_items').select(
-                'product_code, product_name, extended_info'
+                'product_code, product_name, quantity, price'
             ).eq('product_code', manage_number).execute()
             
             if order_items.data and len(order_items.data) > 0:
                 product_info = order_items.data[0]
-                
-                extended_info = product_info.get('extended_info', {})
                 
                 return {
                     "manage_number": manage_number,
                     "product_info": product_info,
                     "analysis": {
                         "product_name": product_info.get('product_name', ''),
-                        "extended_info": extended_info,
-                        "rakuten_variant_id": extended_info.get('rakuten_variant_id'),
-                        "shop_item_code": extended_info.get('shop_item_code'),
-                        "is_parent": extended_info.get('is_parent', False),
-                        "is_child": extended_info.get('is_child', False),
-                        "parent_product_code": extended_info.get('parent_product_code'),
-                        "extracted_variations": extract_variations_from_name(product_info.get('product_name', ''))
+                        "quantity": product_info.get('quantity', 0),
+                        "price": product_info.get('price', 0),
+                        "extracted_variations": extract_variations_from_name(product_info.get('product_name', '')),
+                        "note": "基本データベース情報のみ。楽天API統合により詳細な子商品情報が今後利用可能"
                     },
                     "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
                 }
