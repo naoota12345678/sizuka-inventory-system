@@ -89,7 +89,9 @@ async def root():
             "mapping_tools": "/api/mapping_tools",
             "admin_tools": "/api/admin_tools",
             "rakuten_analysis": "/api/analyze_sold_products",
+            "product_variations": "/api/get_rakuten_product_variations",
             "choice_codes": "/api/extract_choice_codes",
+            "choice_demo": "/api/demo_choice_extraction",
             "health": "/health",
             "docs": "/docs"
         }
@@ -652,6 +654,51 @@ def extract_variations_from_name(product_name: str) -> dict:
     variations["choice_codes"] = list(set(variations["choice_codes"]))
     
     return variations
+
+@app.get("/api/demo_choice_extraction")
+async def demo_choice_extraction():
+    """選択肢コード抽出機能のデモンストレーション"""
+    try:
+        # 実際の楽天商品名のサンプル
+        sample_products = [
+            "ふわふわサーモン【L01】30g",
+            "ふわふわサーモン【M02】20g", 
+            "ふわふわサーモン【S03】15g",
+            "無添加チキン[L]500g",
+            "無添加チキン[M]300g",
+            "国産ビーフ(L01)まとめ買い500g",
+            "北海道産サケ 30g L",
+            "テスト商品1"
+        ]
+        
+        results = []
+        for product_name in sample_products:
+            variations = extract_variations_from_name(product_name)
+            results.append({
+                "product_name": product_name,
+                "extracted_variations": variations
+            })
+        
+        return {
+            "demonstration": "選択肢コード抽出機能のデモ",
+            "sample_results": results,
+            "explanation": {
+                "detected_patterns": [
+                    "【L01】【M02】【S03】 - 楽天標準の選択肢コード形式",
+                    "[L][M][S] - 括弧形式",
+                    "(L01) - 丸括弧形式", 
+                    "30g, 500g - 重量パターン",
+                    "無添加, 国産, 北海道産 - 特別属性"
+                ]
+            },
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"デモンストレーションエラー: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
 
 @app.get("/api/check_database_structure")
 async def check_database_structure():
