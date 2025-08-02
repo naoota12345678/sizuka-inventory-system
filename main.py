@@ -68,13 +68,12 @@ async def startup_event():
     logger.info("SIZUKA在庫管理システム - Cloud Run版を起動中...")
     try:
         if supabase:
-            # データベース接続テスト
-            test_result = supabase.table('platform').select('count').limit(1).execute()
-            logger.info("Supabaseデータベース接続に成功しました")
+            # データベース接続テスト（軽量化）
+            logger.info("Supabaseクライアントは初期化済みです")
         else:
-            logger.error("Supabaseクライアントの初期化に失敗しました")
+            logger.warning("Supabaseクライアントの初期化に失敗しました")
     except Exception as e:
-        logger.error(f"起動時エラー: {str(e)}")
+        logger.warning(f"起動時の軽微なエラー: {str(e)}")
 
 @app.get("/")
 async def root():

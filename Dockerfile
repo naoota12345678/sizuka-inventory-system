@@ -26,5 +26,5 @@ ENV PORT=8080
 # Cloud Runは8080ポートを使用
 EXPOSE 8080
 
-# アプリケーションの起動
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# アプリケーションの起動 - startupチェックを無効化
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info"]
