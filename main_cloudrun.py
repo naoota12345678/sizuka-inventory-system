@@ -549,6 +549,110 @@ async def analyze_sold_products(
             }
         )
 
+@app.get("/api/get_rakuten_product_variations")
+async def get_rakuten_product_variations(
+    manage_number: str = Query(..., description="楽天商品管理番号 (例: 10000301)")
+):
+    """指定された楽天商品の詳細・バリエーション情報を取得"""
+    try:
+        from api.rakuten_api import RakutenAPI
+        
+        # 楽天APIクライアントの初期化
+        try:
+            rakuten_api = RakutenAPI()
+        except Exception as e:
+            return {
+                "error": f"楽天API初期化失敗: {str(e)}",
+                "suggestion": "楽天API認証情報を確認してください"
+            }
+        
+        # 商品詳細をSupabaseから取得
+        if supabase:
+            order_items = supabase.table('order_items').select(
+                'product_code, product_name, product_url, sku_info, choice_code'
+            ).eq('product_code', manage_number).execute()
+            
+            if order_items.data and len(order_items.data) > 0:
+                product_info = order_items.data[0]
+                
+                return {
+                    "manage_number": manage_number,
+                    "product_info": product_info,
+                    "analysis": {
+                        "product_name": product_info.get('product_name', ''),
+                        "sku_info": product_info.get('sku_info'),
+                        "choice_code": product_info.get('choice_code'),
+                        "product_url": product_info.get('product_url'),
+                        "extracted_variations": extract_variations_from_name(product_info.get('product_name', ''))
+                    },
+                    "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                }
+            else:
+                return {
+                    "error": f"商品管理番号 {manage_number} が見つかりません",
+                    "suggestion": "正しい商品管理番号を指定してください",
+                    "available_products": "利用可能な商品番号を確認するには /api/analyze_sold_products を実行"
+                }
+        else:
+            return {"error": "Database connection not configured"}
+        
+    except Exception as e:
+        return {
+            "error": f"商品バリエーション取得エラー: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+def extract_variations_from_name(product_name: str) -> dict:
+    """商品名からバリエーション情報を抽出"""
+    import re
+    
+    variations = {
+        "size_patterns": [],
+        "weight_patterns": [],
+        "color_patterns": [],
+        "choice_codes": [],
+        "special_attributes": []
+    }
+    
+    if not product_name:
+        return variations
+    
+    # サイズパターン
+    size_matches = re.findall(r'(\d+g|\d+kg|\d+ml|\d+L|S|M|L|XL)', product_name, re.IGNORECASE)
+    variations["size_patterns"] = list(set(size_matches))
+    
+    # 重量パターン  
+    weight_matches = re.findall(r'(\d+(?:\.\d+)?(?:g|kg))', product_name, re.IGNORECASE)
+    variations["weight_patterns"] = list(set(weight_matches))
+    
+    # 選択肢コードパターン
+    choice_patterns = [
+        r'【([LMS]\d*)】',  # 【L01】形式
+        r'\[([LMS]\d*)\]',  # [L01]形式
+        r'\(([LMS]\d*)\)',  # (L01)形式
+        r'\b([LMS]\d+)\b',  # L01形式
+    ]
+    
+    for pattern in choice_patterns:
+        matches = re.findall(pattern, product_name, re.IGNORECASE)
+        variations["choice_codes"].extend(matches)
+    
+    # 特別な属性
+    special_attrs = []
+    if '無添加' in product_name:
+        special_attrs.append('無添加')
+    if '国産' in product_name:
+        special_attrs.append('国産')
+    if '北海道産' in product_name:
+        special_attrs.append('北海道産')
+    if 'まとめ買い' in product_name:
+        special_attrs.append('まとめ買い')
+    
+    variations["special_attributes"] = special_attrs
+    variations["choice_codes"] = list(set(variations["choice_codes"]))
+    
+    return variations
+
 @app.get("/api/check_database_structure")
 async def check_database_structure():
     """データベース構造の確認"""
