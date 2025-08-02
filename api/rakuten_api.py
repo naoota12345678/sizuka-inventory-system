@@ -251,6 +251,16 @@ class RakutenAPI:
                             raise Exception(f"商品データの保存に失敗: {item_data['product_code']}")
                         
                         logger.info(f"商品 {item_data['product_code']} を保存しました")
+                        
+                        # SKUマッピングの自動保存（楽天SKUが取得できた場合）
+                        if item_data.get('rakuten_sku'):
+                            self.save_sku_mapping(
+                                management_number=item_data['product_code'],
+                                rakuten_sku=item_data['rakuten_sku'],
+                                choice_code=item_data.get('choice_code', ''),
+                                notes=f"Auto-saved from order {order_number}"
+                            )
+                        
                         success_count += 1
                         
                     break
@@ -284,6 +294,26 @@ class RakutenAPI:
         # より詳細な商品コード（楽天の管理商品番号）
         rakuten_item_number = item.get("itemNumber", "")
         rakuten_variant_id = item.get("variantId", "")
+        
+        # 重要: 実際の楽天SKUを抽出
+        rakuten_sku = ""
+        sku_type = "simple"
+        
+        # 注文データからSKU情報を抽出
+        if "skuId" in item:
+            rakuten_sku = str(item.get("skuId", ""))
+        elif "SkuModelList" in item:
+            # SkuModelListから最初のSKUを取得
+            sku_models = item.get("SkuModelList", [])
+            if sku_models and len(sku_models) > 0:
+                sku_model = sku_models[0]
+                rakuten_sku = str(sku_model.get("skuId", ""))
+                if len(sku_models) > 1:
+                    sku_type = "variant"
+        elif rakuten_variant_id:
+            # variantIdがある場合はそれをSKUとして使用
+            rakuten_sku = rakuten_variant_id
+            sku_type = "variant"
         
         # 商品重量・サイズ情報
         weight = item.get("weight", "")
@@ -322,6 +352,10 @@ class RakutenAPI:
             "weight_info": weight,
             "size_info": size_info,
             
+            # 重要: 実際の楽天SKU情報
+            "rakuten_sku": rakuten_sku,
+            "sku_type": sku_type,
+            
             # 詳細情報はJSONBに保存
             "extended_rakuten_data": {
                 "item_description": item_description[:500],  # 500文字まで
@@ -330,7 +364,12 @@ class RakutenAPI:
                 "discount_price": discount_price,
                 "is_parent": is_parent,
                 "is_child": is_child,
-                "parent_product_code": parent_product_code
+                "parent_product_code": parent_product_code,
+                "raw_sku_data": {
+                    "original_sku_info": item.get("SkuModelList", []),
+                    "extracted_sku": rakuten_sku,
+                    "extraction_method": "skuId" if "skuId" in item else "SkuModelList" if "SkuModelList" in item else "variantId"
+                }
             }
         }
 
@@ -346,21 +385,35 @@ class RakutenAPI:
             raise Exception(f"親商品の保存に失敗: {parent_data['product_code']}")
         
         logger.info(f"親商品 {parent_data['product_code']} を保存しました (注文: {order_number})")
+        
+        # 親商品のSKUマッピングを自動保存
+        if parent_data.get('rakuten_sku'):
+            self.save_sku_mapping(
+                management_number=parent_data['product_code'],
+                rakuten_sku=parent_data['rakuten_sku'],
+                choice_code=parent_data.get('choice_code', ''),
+                notes=f"Auto-saved parent item from order {order_number}"
+            )
+        
         saved_count += 1
         
         # selectedItemsから子商品情報を抽出
         selected_items = parent_item.get("selectedItems", [])
         for child_item in selected_items:
-            child_name = child_item.get("itemName", "")
+            # 子商品の数量は親商品と同じ
+            child_item["units"] = parent_item.get("units", 0)
+            # 価格は親商品の価格を継承（または0）
+            if "price" not in child_item:
+                child_item["price"] = 0
             
-            child_item_data = {
-                "order_id": order_id,
-                "product_code": str(child_item.get("itemId", "")),
-                "product_name": child_name,
-                "quantity": int(parent_item.get("units", 0)),  # 親商品と同じ数量
-                "price": 0,  # 個別価格は通常表示されない
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+            # _prepare_item_dataを使用して子商品データを準備
+            child_item_data = self._prepare_item_data(
+                child_item, 
+                order_id, 
+                is_parent=False, 
+                is_child=True, 
+                parent_product_code=parent_data['product_code']
+            )
             
             # 子商品データの保存
             child_result = supabase.table("order_items").insert(child_item_data).execute()
@@ -369,6 +422,16 @@ class RakutenAPI:
                 raise Exception(f"子商品の保存に失敗: {child_item_data['product_code']}")
             
             logger.info(f"子商品 {child_item_data['product_code']} を保存しました (注文: {order_number})")
+            
+            # 子商品のSKUマッピングを自動保存
+            if child_item_data.get('rakuten_sku'):
+                self.save_sku_mapping(
+                    management_number=child_item_data['product_code'],
+                    rakuten_sku=child_item_data['rakuten_sku'],
+                    choice_code=child_item_data.get('choice_code', ''),
+                    notes=f"Auto-saved child item from order {order_number}"
+                )
+            
             saved_count += 1
         
         return saved_count
@@ -483,3 +546,48 @@ class RakutenAPI:
         except Exception as e:
             logger.error(f"楽天SKU情報取得エラー: {str(e)}")
             raise
+
+    def save_sku_mapping(self, management_number: str, rakuten_sku: str, choice_code: str = "", notes: str = "") -> bool:
+        """楽天SKUマッピング情報をデータベースに保存"""
+        try:
+            if not supabase:
+                raise ValueError("Supabaseクライアントが初期化されていません")
+            
+            # 共通商品コードを生成（例：CM + 管理番号末尾3桁 + 選択肢コード）
+            common_code_base = f"CM{management_number[-3:]}"
+            if choice_code:
+                common_product_code = f"{common_code_base}_{choice_code}"
+            else:
+                common_product_code = common_code_base
+            
+            mapping_data = {
+                "rakuten_product_code": management_number,
+                "rakuten_sku": rakuten_sku,
+                "rakuten_choice_code": choice_code,
+                "common_product_code": common_product_code,
+                "mapping_confidence": 90,  # 自動生成は90%
+                "mapping_type": "auto",
+                "notes": notes or f"Auto-generated from order sync at {datetime.now(timezone.utc).isoformat()}",
+                "created_by": "system_auto_sync"
+            }
+            
+            # 重複チェック
+            existing = supabase.table("product_mapping_rakuten").select("id").eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+            
+            if existing.data:
+                # 既存レコードを更新
+                result = supabase.table("product_mapping_rakuten").update(mapping_data).eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+            else:
+                # 新規レコードを挿入
+                result = supabase.table("product_mapping_rakuten").insert(mapping_data).execute()
+            
+            if result.data:
+                logger.info(f"SKUマッピング保存成功: {management_number} -> {rakuten_sku} -> {common_product_code}")
+                return True
+            else:
+                logger.error(f"SKUマッピング保存失敗: {management_number}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"SKUマッピング保存エラー: {str(e)}")
+            return False
