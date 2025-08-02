@@ -1366,6 +1366,206 @@ def generate_sku_mapping_candidates(sku_families: dict) -> list:
     
     return candidates[:20]  # 最初の20件のみ
 
+@app.get("/api/search_actual_rakuten_skus")
+async def search_actual_rakuten_skus():
+    """実際の楽天SKU（4-9桁の数字）をデータベースから検索"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 提供されたSKUリスト
+        actual_skus = [
+            1797, 1798, 1799, 1800, 1801, 1802, 1810, 1809, 1739, 1740, 1741, 1742, 1743, 1744, 1745, 1749, 1750, 1847, 1863,
+            167439411, 167439431, 167439456, 167439467, 167439492, 167439544, 167439632, 167439694, 167439656, 167439711, 167439727, 167439743, 167439773, 167439822, 167440131, 167439932, 167440029, 167440156, 167440215, 167440277, 167440411, 167440916,
+            1701, 1703, 1737, 1705, 1763, 1715, 1714, 1713, 1718, 1716, 1723, 1848, 1722, 1725, 1726, 1727, 1761, 1762, 1760, 1781, 1850, 1833, 1720, 1759, 1753, 1754, 1839, 1840, 1841, 1842, 1843, 1702, 1724, 1717, 1728, 1729,
+            1768, 1769, 1844, 1845, 1846, 1819, 1827
+        ]
+        
+        # 文字列形式でも検索
+        sku_strings = [str(sku) for sku in actual_skus]
+        
+        # データベースから検索
+        search_results = {
+            "found_in_product_code": [],
+            "found_in_product_name": [],
+            "found_in_extended_info": [],
+            "not_found": [],
+            "summary": {}
+        }
+        
+        # 全order_itemsを取得
+        order_items = supabase.table('order_items').select('*').execute()
+        
+        if not order_items.data:
+            return {"message": "注文データが見つかりません"}
+        
+        found_skus = set()
+        
+        # 各SKUを検索
+        for sku in sku_strings:
+            found = False
+            
+            # product_codeで検索
+            for item in order_items.data:
+                product_code = str(item.get('product_code', ''))
+                product_name = item.get('product_name', '')
+                
+                # product_codeに含まれているか
+                if sku in product_code or product_code == sku:
+                    search_results["found_in_product_code"].append({
+                        "sku": sku,
+                        "product_code": product_code,
+                        "product_name": product_name[:100],
+                        "price": item.get('price', 0)
+                    })
+                    found_skus.add(sku)
+                    found = True
+                
+                # product_nameに含まれているか
+                elif sku in product_name:
+                    search_results["found_in_product_name"].append({
+                        "sku": sku,
+                        "product_code": product_code,
+                        "product_name": product_name[:100],
+                        "price": item.get('price', 0)
+                    })
+                    found_skus.add(sku)
+                    found = True
+            
+            if not found:
+                search_results["not_found"].append(sku)
+        
+        # 短いSKU（4桁以下）と長いSKU（9桁）を分類
+        short_skus = [sku for sku in sku_strings if len(sku) <= 4]
+        long_skus = [sku for sku in sku_strings if len(sku) >= 9]
+        
+        search_results["summary"] = {
+            "total_provided_skus": len(actual_skus),
+            "short_skus_count": len(short_skus),
+            "long_skus_count": len(long_skus),
+            "found_count": len(found_skus),
+            "not_found_count": len(search_results["not_found"]),
+            "found_in_product_code": len(search_results["found_in_product_code"]),
+            "found_in_product_name": len(search_results["found_in_product_name"])
+        }
+        
+        # 見つからなかったSKUの一部を表示
+        search_results["sample_not_found"] = search_results["not_found"][:10]
+        
+        return {
+            "status": "success",
+            "search_results": search_results,
+            "analysis": {
+                "current_database_issue": "データベース内の商品コードは楽天商品管理番号（10000xxx）で、実際の楽天SKUではない",
+                "solution_needed": "楽天APIから正しいSKU情報を取得して、データベースに追加カラムとして保存する必要がある",
+                "next_steps": [
+                    "楽天APIからSKU情報を取得",
+                    "order_itemsテーブルにrakuten_sku カラムを追加", 
+                    "SKU情報を同期・保存",
+                    "スプレッドシートの名寄せルールに従ってマッピング"
+                ]
+            },
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/analyze_database_vs_actual_skus") 
+async def analyze_database_vs_actual_skus():
+    """データベース内容と実際の楽天SKUの相違を分析"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 現在のデータベース内容分析
+        order_items = supabase.table('order_items').select('product_code, product_name').limit(50).execute()
+        
+        analysis = {
+            "current_database_patterns": {},
+            "actual_rakuten_sku_patterns": {},
+            "discrepancy_analysis": {},
+            "recommendations": []
+        }
+        
+        # 現在のデータベースパターン分析
+        if order_items.data:
+            db_codes = [item.get('product_code', '') for item in order_items.data]
+            unique_db_codes = list(set(db_codes))
+            
+            analysis["current_database_patterns"] = {
+                "sample_codes": unique_db_codes[:10],
+                "total_unique_codes": len(unique_db_codes),
+                "code_length_distribution": {},
+                "pattern_analysis": "All codes follow 10000xxx format (8 digits)"
+            }
+            
+            # 長さ分布
+            for code in unique_db_codes:
+                length = len(str(code))
+                if length not in analysis["current_database_patterns"]["code_length_distribution"]:
+                    analysis["current_database_patterns"]["code_length_distribution"][length] = 0
+                analysis["current_database_patterns"]["code_length_distribution"][length] += 1
+        
+        # 実際の楽天SKUパターン分析
+        actual_skus = [1797, 1798, 1799, 1800, 167439411, 167439431, 1701, 1703, 1768, 1769]  # サンプル
+        
+        analysis["actual_rakuten_sku_patterns"] = {
+            "sample_skus": actual_skus,
+            "short_sku_range": "1701-1869 (4 digits)",
+            "long_sku_range": "167439411-167440916 (9 digits)", 
+            "pattern_analysis": "Mix of 4-digit and 9-digit SKUs, completely different from database codes"
+        }
+        
+        # 相違分析
+        analysis["discrepancy_analysis"] = {
+            "major_issue": "Complete mismatch between database codes and actual Rakuten SKUs",
+            "database_codes": "楽天商品管理番号（管理用ID）",
+            "actual_skus": "楽天SKU（実際の販売単位）",
+            "impact": "現在のデータでは正確なSKUベースのマッピングができない"
+        }
+        
+        # 推奨事項
+        analysis["recommendations"] = [
+            {
+                "priority": "緊急",
+                "action": "楽天APIからSKU情報を取得",
+                "description": "注文APIまたは商品APIからSKU情報を追加取得"
+            },
+            {
+                "priority": "高",
+                "action": "データベーススキーマ拡張",
+                "description": "order_itemsテーブルにrakuten_sku, choice_id等のカラム追加"
+            },
+            {
+                "priority": "高", 
+                "action": "SKUマッピングテーブル作成",
+                "description": "商品管理番号 ↔ 楽天SKU ↔ 共通コードのマッピングテーブル"
+            },
+            {
+                "priority": "中",
+                "action": "データ再同期",
+                "description": "正しいSKU情報を含む形でデータを再取得・保存"
+            }
+        ]
+        
+        return {
+            "status": "success", 
+            "analysis": analysis,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e), 
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
 @app.get("/api/check_database_structure")
 async def check_database_structure():
     """データベース構造の確認"""
