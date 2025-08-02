@@ -1,0 +1,36 @@
+name: Test Authentication
+
+on:
+  workflow_dispatch:  # 手動実行のみ
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Test GCP_SA_KEY exists
+      run: |
+        if [ -z "${{ secrets.GCP_SA_KEY }}" ]; then
+          echo "GCP_SA_KEY is not set"
+          exit 1
+        else
+          echo "GCP_SA_KEY is set (length: ${#SECRET})"
+        fi
+      env:
+        SECRET: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Test gcloud auth
+      run: |
+        gcloud config list
+        gcloud auth list
