@@ -462,13 +462,9 @@ async def analyze_sold_products(
         end_date = datetime.now(pytz.timezone('Asia/Tokyo'))
         start_date = end_date - timedelta(days=days)
         
-        # order_itemsから商品管理番号を取得
+        # order_itemsとordersをJOINして商品管理番号を取得
         orders = supabase.table('order_items').select(
-            'product_code, product_name, order_date'
-        ).gte(
-            'order_date', start_date.isoformat()
-        ).lte(
-            'order_date', end_date.isoformat()
+            'product_code, product_name, order_id, orders(order_date, id)'
         ).limit(limit).execute()
         
         if not orders.data:
@@ -502,7 +498,17 @@ async def analyze_sold_products(
         for order in orders.data:
             product_code = order.get('product_code', '')
             if product_code and product_code not in unique_products:
-                unique_products[product_code] = order
+                order_date = None
+                if order.get('orders') and isinstance(order['orders'], dict):
+                    order_date = order['orders'].get('order_date')
+                elif order.get('orders') and isinstance(order['orders'], list) and len(order['orders']) > 0:
+                    order_date = order['orders'][0].get('order_date')
+                
+                unique_products[product_code] = {
+                    "product_name": order.get('product_name', ''),
+                    "order_date": order_date,
+                    "order_id": order.get('order_id')
+                }
         
         # 各商品の詳細分析
         for product_code, order_info in list(unique_products.items())[:10]:  # 最初の10件をテスト
@@ -510,6 +516,7 @@ async def analyze_sold_products(
                 "manage_number": product_code,
                 "product_name": order_info.get('product_name', ''),
                 "last_order_date": order_info.get('order_date'),
+                "order_id": order_info.get('order_id'),
                 "status": "analyzed",
                 "note": "楽天商品API統合により、今後はバリエーション情報も取得可能"
             })
