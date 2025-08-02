@@ -88,6 +88,7 @@ async def root():
             "platform_sync": "/api/platform_sync",
             "rakuten_analysis": "/api/analyze_sold_products",
             "comprehensive_analysis": "/api/comprehensive_rakuten_analysis",
+            "sku_structure_analysis": "/api/analyze_rakuten_sku_structure",
             "family_detail": "/api/product_family_detail",
             "product_variations": "/api/get_rakuten_product_variations",
             "choice_codes": "/api/extract_choice_codes",
@@ -1158,6 +1159,212 @@ async def product_family_detail(
             "message": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
+
+@app.get("/api/analyze_rakuten_sku_structure")
+async def analyze_rakuten_sku_structure():
+    """楽天SKUコードの構造分析と判別"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 全order_itemsデータを取得してSKU構造を分析
+        order_items = supabase.table('order_items').select('*').execute()
+        
+        if not order_items.data:
+            return {"message": "注文データが見つかりません"}
+        
+        sku_analysis = {
+            "total_items": len(order_items.data),
+            "sku_patterns": {
+                "standard_sku": [],      # 一般的な楽天SKU (数字のみ)
+                "variant_sku": [],       # バリエーションSKU (数字-文字列)
+                "custom_sku": [],        # カスタムSKU (文字列含む)
+                "unknown_pattern": []    # 不明パターン
+            },
+            "sku_families": {},         # SKUファミリー別分析
+            "detected_variations": {},  # 検出されたバリエーション
+            "mapping_candidates": []    # マッピング候補
+        }
+        
+        # 各商品のSKU分析
+        for item in order_items.data:
+            product_code = item.get('product_code', '')
+            product_name = item.get('product_name', '')
+            
+            if not product_code:
+                continue
+            
+            # SKUパターン判別
+            sku_pattern = classify_rakuten_sku(product_code)
+            sku_analysis["sku_patterns"][sku_pattern["type"]].append({
+                "sku": product_code,
+                "product_name": product_name[:80],
+                "pattern_details": sku_pattern,
+                "price": item.get('price', 0),
+                "quantity": item.get('quantity', 0)
+            })
+            
+            # SKUファミリー分析
+            family_code = extract_sku_family(product_code)
+            if family_code not in sku_analysis["sku_families"]:
+                sku_analysis["sku_families"][family_code] = {
+                    "family_code": family_code,
+                    "skus": [],
+                    "is_variation_family": False,
+                    "base_sku": None
+                }
+            
+            sku_analysis["sku_families"][family_code]["skus"].append({
+                "sku": product_code,
+                "product_name": product_name[:60],
+                "pattern": sku_pattern
+            })
+        
+        # バリエーションファミリーの検出
+        for family_code, family_data in sku_analysis["sku_families"].items():
+            if len(family_data["skus"]) > 1:
+                family_data["is_variation_family"] = True
+                # ベースSKUを特定（最も短いSKU）
+                family_data["base_sku"] = min(family_data["skus"], key=lambda x: len(x["sku"]))["sku"]
+        
+        # 統計とサマリー
+        sku_analysis["statistics"] = {
+            "standard_sku_count": len(sku_analysis["sku_patterns"]["standard_sku"]),
+            "variant_sku_count": len(sku_analysis["sku_patterns"]["variant_sku"]), 
+            "custom_sku_count": len(sku_analysis["sku_patterns"]["custom_sku"]),
+            "total_families": len(sku_analysis["sku_families"]),
+            "variation_families": len([f for f in sku_analysis["sku_families"].values() if f["is_variation_family"]])
+        }
+        
+        # マッピング候補生成
+        sku_analysis["mapping_candidates"] = generate_sku_mapping_candidates(sku_analysis["sku_families"])
+        
+        # 重要なファミリーのみ表示（データ量制限）
+        important_families = {k: v for k, v in sku_analysis["sku_families"].items() 
+                            if len(v["skus"]) > 1}[:10]
+        sku_analysis["sku_families"] = dict(list(important_families.items())[:10])
+        
+        return {
+            "status": "success",
+            "sku_analysis": sku_analysis,
+            "recommendations": [
+                {
+                    "priority": "高",
+                    "action": "バリエーションファミリーの優先マッピング",
+                    "description": f"{sku_analysis['statistics']['variation_families']}個のバリエーションファミリーを発見"
+                },
+                {
+                    "priority": "中",
+                    "action": "スプレッドシート名寄せ管理との照合",
+                    "description": "検出されたSKUパターンを既存の名寄せデータと照合"
+                }
+            ],
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+def classify_rakuten_sku(sku: str) -> dict:
+    """楽天SKUのパターン分類"""
+    import re
+    
+    if not sku:
+        return {"type": "unknown_pattern", "details": "Empty SKU"}
+    
+    # パターン1: 純粋な数字SKU (例: 10000059)
+    if re.match(r'^\d+$', sku):
+        return {
+            "type": "standard_sku",
+            "details": "Standard numeric SKU",
+            "base_number": sku,
+            "variation_part": None
+        }
+    
+    # パターン2: 数字-文字列バリエーション (例: 10000059-L01)
+    variant_match = re.match(r'^(\d+)[-_]([A-Za-z0-9]+)$', sku)
+    if variant_match:
+        return {
+            "type": "variant_sku", 
+            "details": "Numeric base with variation",
+            "base_number": variant_match.group(1),
+            "variation_part": variant_match.group(2)
+        }
+    
+    # パターン3: テストデータ (例: TEST001)
+    if re.match(r'^TEST\d+$', sku):
+        return {
+            "type": "custom_sku",
+            "details": "Test data SKU",
+            "base_number": None,
+            "variation_part": sku
+        }
+    
+    # パターン4: 文字列含むカスタムSKU
+    if re.match(r'^[A-Za-z]', sku):
+        return {
+            "type": "custom_sku",
+            "details": "Custom alphanumeric SKU", 
+            "base_number": None,
+            "variation_part": sku
+        }
+    
+    return {
+        "type": "unknown_pattern",
+        "details": f"Unrecognized pattern: {sku}",
+        "base_number": None,
+        "variation_part": None
+    }
+
+def extract_sku_family(sku: str) -> str:
+    """SKUからファミリーコードを抽出"""
+    import re
+    
+    # バリエーションSKUの場合、ベース部分を返す
+    variant_match = re.match(r'^(\d+)[-_]([A-Za-z0-9]+)$', sku)
+    if variant_match:
+        return variant_match.group(1)
+    
+    # 数字SKUの場合、そのまま返す（ただし最後の1-2桁を除く可能性も）
+    if re.match(r'^\d+$', sku):
+        if len(sku) >= 6:
+            return sku[:6]  # 最初の6桁をファミリーとする
+        return sku
+    
+    # その他の場合
+    return sku
+
+def generate_sku_mapping_candidates(sku_families: dict) -> list:
+    """SKUファミリーからマッピング候補を生成"""
+    candidates = []
+    
+    for family_code, family_data in sku_families.items():
+        if family_data["is_variation_family"]:
+            base_sku = family_data["base_sku"]
+            
+            for i, sku_info in enumerate(family_data["skus"]):
+                sku = sku_info["sku"]
+                pattern = sku_info["pattern"]
+                
+                # 共通コード候補の生成
+                if pattern["type"] == "variant_sku":
+                    suggested_common = f"CM{family_code[-3:]}_{pattern['variation_part']}"
+                else:
+                    suggested_common = f"CM{family_code[-3:]}_{i+1:02d}"
+                
+                candidates.append({
+                    "rakuten_sku": sku,
+                    "family_code": family_code,
+                    "suggested_common_code": suggested_common,
+                    "product_name": sku_info["product_name"],
+                    "confidence": 85 if pattern["type"] == "variant_sku" else 60
+                })
+    
+    return candidates[:20]  # 最初の20件のみ
 
 @app.get("/api/check_database_structure")
 async def check_database_structure():
