@@ -270,9 +270,7 @@ class RakutenAPI:
         return {"success": success_count, "error": error_count}
 
     def _prepare_item_data(self, item: Dict, order_id: int, is_parent: bool = False, is_child: bool = False, parent_product_code: str = "") -> Dict:
-        """商品データを準備（拡張版：より多くの楽天情報を取得）"""
-        # 現在のorder_itemsテーブルのスキーマに合わせる
-        # カラム: id, order_id, product_code, product_name, quantity, price, created_at
+        """商品データを準備（拡張版：楽天情報を直接カラムに保存）"""
         
         item_name = item.get("itemName", "")
         quantity = int(item.get("units", 0))
@@ -283,19 +281,9 @@ class RakutenAPI:
         category_path = item.get("categoryPathName", "")
         brand_name = item.get("brandName", "")
         
-        # 商品説明から重要情報を抽出
-        item_description = item.get("itemDescription", "")
-        
         # より詳細な商品コード（楽天の管理商品番号）
         rakuten_item_number = item.get("itemNumber", "")
         rakuten_variant_id = item.get("variantId", "")
-        
-        # 商品URL（画像取得用）
-        item_url = item.get("itemUrl", "")
-        
-        # より詳細な価格情報
-        original_price = float(item.get("originalPrice", 0))
-        discount_price = float(item.get("discountPrice", 0))
         
         # 商品重量・サイズ情報
         weight = item.get("weight", "")
@@ -303,6 +291,16 @@ class RakutenAPI:
         
         # ショップ情報
         shop_item_code = item.get("shopItemCode", "")
+        
+        # 選択肢コードを商品名から抽出
+        from core.utils import extract_choice_code_from_name
+        choice_code = extract_choice_code_from_name(item_name)
+        
+        # その他の詳細情報
+        item_description = item.get("itemDescription", "")
+        item_url = item.get("itemUrl", "")
+        original_price = float(item.get("originalPrice", 0))
+        discount_price = float(item.get("discountPrice", 0))
         
         return {
             "order_id": order_id,
@@ -312,20 +310,24 @@ class RakutenAPI:
             "price": unit_price,
             "created_at": datetime.now(timezone.utc).isoformat(),
             
-            # 追加情報（JSONBカラムに保存）
-            "extended_info": {
-                "jan_code": jan_code,
-                "category_path": category_path,
-                "brand_name": brand_name,
+            # 楽天特有の情報を直接カラムに保存
+            "choice_code": choice_code,
+            "item_type": 1 if is_parent else 0,
+            "rakuten_variant_id": rakuten_variant_id,
+            "rakuten_item_number": rakuten_item_number,
+            "shop_item_code": shop_item_code,
+            "jan_code": jan_code,
+            "category_path": category_path,
+            "brand_name": brand_name,
+            "weight_info": weight,
+            "size_info": size_info,
+            
+            # 詳細情報はJSONBに保存
+            "extended_rakuten_data": {
                 "item_description": item_description[:500],  # 500文字まで
-                "rakuten_item_number": rakuten_item_number,
-                "rakuten_variant_id": rakuten_variant_id,
                 "item_url": item_url,
                 "original_price": original_price,
                 "discount_price": discount_price,
-                "weight": weight,
-                "size_info": size_info,
-                "shop_item_code": shop_item_code,
                 "is_parent": is_parent,
                 "is_child": is_child,
                 "parent_product_code": parent_product_code

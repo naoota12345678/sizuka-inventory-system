@@ -117,3 +117,33 @@ def extract_selected_choices(selected_choice_text: str) -> List[Dict[str, str]]:
                 })
     
     return choices
+
+def extract_choice_code_from_name(product_name: str) -> str:
+    """商品名から楽天の選択肢コードを抽出
+    
+    Args:
+        product_name: 商品名
+        
+    Returns:
+        抽出された選択肢コード（L01, M02, S03など）
+    """
+    if not product_name:
+        return ""
+    
+    import re
+    
+    # 楽天の選択肢コードパターン
+    choice_patterns = [
+        r'【([LMS]\d*)】',  # 【L01】【M02】【S03】形式
+        r'\[([LMS]\d*)\]',  # [L01][M02][S03]形式
+        r'\(([LMS]\d*)\)',  # (L01)(M02)(S03)形式
+        r'\b([LMS]\d+)\b',  # L01 M02 S03形式（単語境界）
+    ]
+    
+    for pattern in choice_patterns:
+        matches = re.findall(pattern, product_name, re.IGNORECASE)
+        if matches:
+            # 最初に見つかったコードを返す
+            return matches[0].upper()
+    
+    return ""

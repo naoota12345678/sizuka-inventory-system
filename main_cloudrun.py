@@ -86,12 +86,13 @@ async def root():
             "inventory": "/api/inventory_list",
             "sales": "/api/sales_dashboard", 
             "platform_sync": "/api/platform_sync",
-            "mapping_tools": "/api/mapping_tools",
-            "admin_tools": "/api/admin_tools",
             "rakuten_analysis": "/api/analyze_sold_products",
             "product_variations": "/api/get_rakuten_product_variations",
             "choice_codes": "/api/extract_choice_codes",
             "choice_demo": "/api/demo_choice_extraction",
+            "save_mapping": "/api/save_choice_mapping",
+            "get_mappings": "/api/get_choice_mappings", 
+            "unmapped_analysis": "/api/analyze_unmapped_products",
             "health": "/health",
             "docs": "/docs"
         }
@@ -697,6 +698,174 @@ async def demo_choice_extraction():
     except Exception as e:
         return {
             "error": f"デモンストレーションエラー: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.post("/api/save_choice_mapping")
+async def save_choice_mapping(
+    parent_product_code: str,
+    choice_code: str,
+    common_product_code: str,
+    choice_name: str = "",
+    mapping_confidence: int = 100
+):
+    """選択肢コードと共通商品コードのマッピングを保存"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # rakuten_choice_mappingテーブルに保存
+        choice_mapping_data = {
+            "parent_product_code": parent_product_code,
+            "choice_code": choice_code,
+            "choice_name": choice_name,
+            "created_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+        # product_mapping_rakutenテーブルに保存
+        product_mapping_data = {
+            "rakuten_product_code": parent_product_code,
+            "rakuten_choice_code": choice_code,
+            "common_product_code": common_product_code,
+            "mapping_confidence": mapping_confidence,
+            "mapping_type": "manual",
+            "created_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+        # データベースに保存（upsert）
+        try:
+            choice_result = supabase.table('rakuten_choice_mapping').upsert(
+                choice_mapping_data,
+                on_conflict="parent_product_code,choice_code"
+            ).execute()
+            
+            mapping_result = supabase.table('product_mapping_rakuten').upsert(
+                product_mapping_data,
+                on_conflict="rakuten_product_code,rakuten_choice_code"
+            ).execute()
+            
+            return {
+                "status": "success",
+                "message": f"マッピングを保存しました: {parent_product_code}[{choice_code}] → {common_product_code}",
+                "choice_mapping": choice_result.data,
+                "product_mapping": mapping_result.data,
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+            
+        except Exception as db_error:
+            return {
+                "status": "warning", 
+                "message": f"データベーススキーマが未更新の可能性があります: {str(db_error)}",
+                "suggested_action": "先にデータベースのスキーマを更新してください",
+                "sql_file": "/supabase/02_rakuten_enhancement.sql"
+            }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/get_choice_mappings")
+async def get_choice_mappings(
+    parent_product_code: str = Query(None, description="親商品コード"),
+    limit: int = Query(50, description="取得件数")
+):
+    """選択肢コードマッピングの一覧取得"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # クエリ構築
+        query = supabase.table('product_mapping_rakuten').select('*')
+        
+        if parent_product_code:
+            query = query.eq('rakuten_product_code', parent_product_code)
+        
+        query = query.limit(limit).order('created_at', desc=True)
+        
+        try:
+            result = query.execute()
+            
+            return {
+                "status": "success",
+                "mappings": result.data if result.data else [],
+                "total_count": len(result.data) if result.data else 0,
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+            
+        except Exception as db_error:
+            return {
+                "status": "warning",
+                "message": f"マッピングテーブルが存在しません: {str(db_error)}",
+                "suggested_action": "先にデータベースのスキーマを更新してください",
+                "sql_file": "/supabase/02_rakuten_enhancement.sql"
+            }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/analyze_unmapped_products")
+async def analyze_unmapped_products():
+    """マッピングされていない楽天商品の分析"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # order_itemsから楽天商品を取得
+        order_items = supabase.table('order_items').select(
+            'product_code, product_name'
+        ).limit(100).execute()
+        
+        if not order_items.data:
+            return {"message": "注文データが見つかりません"}
+        
+        unmapped_products = []
+        
+        for item in order_items.data:
+            product_code = item.get('product_code', '')
+            product_name = item.get('product_name', '')
+            
+            # 選択肢コードを抽出
+            from core.utils import extract_choice_code_from_name
+            choice_code = extract_choice_code_from_name(product_name)
+            
+            # マッピング存在確認（実際のテーブルが存在する場合）
+            try:
+                existing_mapping = supabase.table('product_mapping_rakuten').select('*').eq(
+                    'rakuten_product_code', product_code
+                ).execute()
+                
+                is_mapped = len(existing_mapping.data) > 0 if existing_mapping.data else False
+            except:
+                is_mapped = False  # テーブルが存在しない場合
+            
+            if not is_mapped:
+                unmapped_products.append({
+                    "product_code": product_code,
+                    "product_name": product_name,
+                    "extracted_choice_code": choice_code,
+                    "suggested_common_code": f"CM{product_code[-3:]}_{choice_code}" if choice_code else f"CM{product_code[-3:]}"
+                })
+        
+        return {
+            "status": "success",
+            "unmapped_count": len(unmapped_products),
+            "unmapped_products": unmapped_products[:20],  # 最初の20件
+            "next_step": "これらの商品に共通商品コードを割り当ててマッピングを作成してください",
+            "mapping_endpoint": "/api/save_choice_mapping",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 
