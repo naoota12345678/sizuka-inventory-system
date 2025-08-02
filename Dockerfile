@@ -9,8 +9,7 @@ RUN pip install --upgrade pip
 
 # 依存関係のコピーとインストール
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir click==8.1.7
+RUN pip install --no-cache-dir -r requirements.txt
 
 # アプリケーションコードのコピー
 COPY . .
@@ -26,5 +25,5 @@ ENV PORT=8080
 # Cloud Runは8080ポートを使用
 EXPOSE 8080
 
-# アプリケーションの起動 - startupチェックを無効化
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info"]
+# アプリケーションの起動
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--reload=false"]
