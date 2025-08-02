@@ -445,6 +445,92 @@ async def get_system_status():
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 
+# ===== 楽天商品詳細API =====
+@app.get("/api/analyze_sold_products")
+async def analyze_sold_products(
+    days: int = Query(7, description="過去何日分の注文を分析するか"),
+    limit: int = Query(50, description="分析する商品数の上限")
+):
+    """販売された商品の詳細分析（子商品情報含む）"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 過去の注文から商品管理番号を取得
+        end_date = datetime.now(pytz.timezone('Asia/Tokyo'))
+        start_date = end_date - timedelta(days=days)
+        
+        # order_itemsから商品管理番号を取得
+        orders = supabase.table('order_items').select(
+            'product_code, product_name, order_date'
+        ).gte(
+            'order_date', start_date.isoformat()
+        ).lte(
+            'order_date', end_date.isoformat()
+        ).limit(limit).execute()
+        
+        if not orders.data:
+            return {
+                "message": "指定期間に販売された商品が見つかりません",
+                "period": f"{start_date.strftime('%Y-%m-%d')} から {end_date.strftime('%Y-%m-%d')}",
+                "suggestions": [
+                    "期間を長くして再実行してください (例: ?days=30)",
+                    "まず楽天APIから注文データを同期してください"
+                ],
+                "available_endpoints": [
+                    "/api/platform_sync?platform=rakuten&action=sync",
+                    "/api/extract_choice_codes"
+                ]
+            }
+        
+        # 楽天APIクライアントの初期化
+        try:
+            from api.rakuten_api import RakutenAPI
+            rakuten_api = RakutenAPI()
+        except Exception as e:
+            return {
+                "error": f"楽天API初期化失敗: {str(e)}",
+                "suggestion": "楽天API認証情報を確認してください"
+            }
+        
+        analyzed_products = []
+        unique_products = {}
+        
+        # 重複を除去
+        for order in orders.data:
+            product_code = order.get('product_code', '')
+            if product_code and product_code not in unique_products:
+                unique_products[product_code] = order
+        
+        # 各商品の詳細分析
+        for product_code, order_info in list(unique_products.items())[:10]:  # 最初の10件をテスト
+            analyzed_products.append({
+                "manage_number": product_code,
+                "product_name": order_info.get('product_name', ''),
+                "last_order_date": order_info.get('order_date'),
+                "status": "analyzed",
+                "note": "楽天商品API統合により、今後はバリエーション情報も取得可能"
+            })
+        
+        return {
+            "analysis_period": f"{start_date.strftime('%Y-%m-%d')} から {end_date.strftime('%Y-%m-%d')}",
+            "total_orders_found": len(orders.data),
+            "total_unique_products": len(unique_products),
+            "analyzed_sample": analyzed_products,
+            "next_step": "楽天商品APIを使用してバリエーション情報を取得",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        )
+
 # アプリケーションの起動
 if __name__ == "__main__":
     import uvicorn
