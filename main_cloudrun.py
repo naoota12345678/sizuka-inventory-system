@@ -559,7 +559,7 @@ async def analyze_sold_products(
 async def get_rakuten_product_variations(
     manage_number: str = Query(..., description="楽天商品管理番号 (例: 10000301)")
 ):
-    """指定された楽天商品の詳細・バリエーション情報を取得"""
+    """指定された楽天商品の詳細・バリエーション情報を取得（楽天APIから実際のSKU情報も取得）"""
     try:
         from api.rakuten_api import RakutenAPI
         
@@ -581,6 +581,30 @@ async def get_rakuten_product_variations(
             if order_items.data and len(order_items.data) > 0:
                 product_info = order_items.data[0]
                 
+                # 楽天APIから商品詳細を取得
+                try:
+                    rakuten_product = rakuten_api.get_product_details(manage_number)
+                    
+                    # SKU情報と選択肢コードを抽出
+                    sku_info = []
+                    if rakuten_product and 'item' in rakuten_product:
+                        item = rakuten_product['item']
+                        
+                        # 子商品（バリエーション）情報の取得
+                        if 'options' in item:
+                            for option in item['options']:
+                                sku_info.append({
+                                    "option_name": option.get('optionName', ''),
+                                    "option_value": option.get('optionValue', ''),
+                                    "sku": option.get('itemNumberOption', ''),
+                                    "choice_code": extract_choice_code_from_option(option),
+                                    "stock": option.get('inventoryCount', 0),
+                                    "price": option.get('price', item.get('itemPrice', 0))
+                                })
+                except Exception as api_error:
+                    rakuten_product = None
+                    sku_info = []
+                
                 return {
                     "manage_number": manage_number,
                     "product_info": product_info,
@@ -589,7 +613,11 @@ async def get_rakuten_product_variations(
                         "quantity": product_info.get('quantity', 0),
                         "price": product_info.get('price', 0),
                         "extracted_variations": extract_variations_from_name(product_info.get('product_name', '')),
-                        "note": "基本データベース情報のみ。楽天API統合により詳細な子商品情報が今後利用可能"
+                        "rakuten_api_data": {
+                            "available": rakuten_product is not None,
+                            "sku_variations": sku_info,
+                            "total_variations": len(sku_info)
+                        }
                     },
                     "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
                 }
@@ -659,6 +687,33 @@ def extract_variations_from_name(product_name: str) -> dict:
     
     return variations
 
+def extract_choice_code_from_option(option: dict) -> str:
+    """楽天APIのオプション情報から選択肢コードを抽出"""
+    option_name = option.get('optionName', '')
+    option_value = option.get('optionValue', '')
+    
+    # オプション値から選択肢コードを抽出
+    import re
+    choice_patterns = [
+        r'【([LMS]\d*)】',  # 【L01】形式
+        r'\[([LMS]\d*)\]',  # [L01]形式
+        r'\(([LMS]\d*)\)',  # (L01)形式
+        r'\b([LMS]\d+)\b',  # L01形式
+    ]
+    
+    for pattern in choice_patterns:
+        matches = re.findall(pattern, option_value, re.IGNORECASE)
+        if matches:
+            return matches[0].upper()
+    
+    # オプション名からも確認
+    for pattern in choice_patterns:
+        matches = re.findall(pattern, option_name, re.IGNORECASE)
+        if matches:
+            return matches[0].upper()
+    
+    return ''
+
 @app.get("/api/demo_choice_extraction")
 async def demo_choice_extraction():
     """選択肢コード抽出機能のデモンストレーション"""
@@ -701,6 +756,318 @@ async def demo_choice_extraction():
     except Exception as e:
         return {
             "error": f"デモンストレーションエラー: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/get_rakuten_sku_from_api")
+async def get_rakuten_sku_from_api(
+    manage_number: str = Query(None, description="楽天商品管理番号"),
+    limit: int = Query(10, description="取得件数")
+):
+    """楽天APIから実際のSKU情報と選択肢コードを取得"""
+    try:
+        from api.rakuten_api import RakutenAPI
+        
+        # 楽天APIクライアントの初期化
+        try:
+            rakuten_api = RakutenAPI()
+        except Exception as e:
+            return {
+                "error": f"楽天API初期化失敗: {str(e)}",
+                "suggestion": "楽天API認証情報を確認してください"
+            }
+        
+        results = {
+            "status": "success",
+            "products_with_sku": [],
+            "total_sku_found": 0,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+        if manage_number:
+            # 特定の商品管理番号のSKU情報を取得
+            product_details = await fetch_rakuten_product_sku(rakuten_api, manage_number)
+            if product_details:
+                results["products_with_sku"].append(product_details)
+                results["total_sku_found"] = len(product_details.get("sku_list", []))
+        else:
+            # データベースから商品管理番号を取得
+            if supabase:
+                order_items = supabase.table('order_items').select(
+                    'product_code, product_name'
+                ).limit(limit).execute()
+                
+                if order_items.data:
+                    unique_products = {}
+                    for item in order_items.data:
+                        product_code = item.get('product_code', '')
+                        if product_code and product_code not in unique_products:
+                            unique_products[product_code] = item.get('product_name', '')
+                    
+                    # 各商品のSKU情報を取得
+                    for product_code, product_name in list(unique_products.items())[:5]:  # 最初の5件
+                        product_details = await fetch_rakuten_product_sku(rakuten_api, product_code)
+                        if product_details:
+                            results["products_with_sku"].append(product_details)
+                            results["total_sku_found"] += len(product_details.get("sku_list", []))
+        
+        return results
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+async def fetch_rakuten_product_sku(rakuten_api, manage_number: str) -> dict:
+    """楽天APIから商品のSKU情報を取得"""
+    try:
+        # 楽天APIから商品情報を取得
+        product_data = rakuten_api.get_product_details(manage_number)
+        
+        if not product_data or 'item' not in product_data:
+            return None
+        
+        item = product_data['item']
+        sku_list = []
+        
+        # メインSKU
+        main_sku = item.get('itemNumber', '')
+        if main_sku:
+            sku_list.append({
+                "sku": main_sku,
+                "type": "main",
+                "choice_code": "",
+                "option_name": "メイン商品",
+                "price": item.get('itemPrice', 0),
+                "stock": item.get('inventoryCount', 0)
+            })
+        
+        # バリエーションSKU
+        if 'options' in item and isinstance(item['options'], list):
+            for option in item['options']:
+                option_sku = option.get('itemNumberOption', '')
+                option_name = option.get('optionName', '')
+                option_value = option.get('optionValue', '')
+                
+                # 選択肢コードを抽出
+                choice_code = extract_choice_code_from_option(option)
+                
+                if option_sku:
+                    sku_list.append({
+                        "sku": option_sku,
+                        "type": "option",
+                        "choice_code": choice_code,
+                        "option_name": f"{option_name}: {option_value}",
+                        "price": option.get('price', item.get('itemPrice', 0)),
+                        "stock": option.get('inventoryCount', 0)
+                    })
+        
+        return {
+            "manage_number": manage_number,
+            "product_name": item.get('itemName', ''),
+            "main_sku": main_sku,
+            "total_variations": len(sku_list),
+            "sku_list": sku_list,
+            "has_choice_codes": any(sku['choice_code'] for sku in sku_list)
+        }
+        
+    except Exception as e:
+        return None
+
+@app.get("/api/verify_choice_code_extraction")
+async def verify_choice_code_extraction():
+    """データベース内の実際のデータから選択肢コードを抽出・確認"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # データベースから商品情報を取得
+        order_items = supabase.table('order_items').select(
+            'product_code, product_name'
+        ).limit(100).execute()
+        
+        if not order_items.data:
+            return {"error": "order_itemsデータが見つかりません"}
+        
+        analysis_results = {
+            "total_products": len(order_items.data),
+            "products_with_choice_codes": [],
+            "choice_code_summary": {},
+            "extraction_patterns": {
+                "【XX】": 0,
+                "[XX]": 0,
+                "(XX)": 0,
+                "XX形式": 0
+            },
+            "sample_extractions": [],
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+        # 各商品から選択肢コードを抽出
+        for item in order_items.data:
+            product_name = item.get('product_name', '')
+            product_code = item.get('product_code', '')
+            
+            # 選択肢コードを抽出
+            variations = extract_variations_from_name(product_name)
+            
+            if variations['choice_codes']:
+                product_info = {
+                    "product_code": product_code,
+                    "product_name": product_name[:100],
+                    "choice_codes": variations['choice_codes'],
+                    "other_variations": {
+                        "sizes": variations['size_patterns'],
+                        "weights": variations['weight_patterns'],
+                        "attributes": variations['special_attributes']
+                    }
+                }
+                
+                analysis_results["products_with_choice_codes"].append(product_info)
+                
+                # 選択肢コードの集計
+                for code in variations['choice_codes']:
+                    if code not in analysis_results["choice_code_summary"]:
+                        analysis_results["choice_code_summary"][code] = 0
+                    analysis_results["choice_code_summary"][code] += 1
+                
+                # パターン分析
+                if '【' in product_name and '】' in product_name:
+                    analysis_results["extraction_patterns"]["【XX】"] += 1
+                elif '[' in product_name and ']' in product_name:
+                    analysis_results["extraction_patterns"]["[XX]"] += 1
+                elif '(' in product_name and ')' in product_name:
+                    analysis_results["extraction_patterns"]["(XX)"] += 1
+                else:
+                    analysis_results["extraction_patterns"]["XX形式"] += 1
+        
+        # サンプル抽出結果
+        analysis_results["sample_extractions"] = analysis_results["products_with_choice_codes"][:10]
+        
+        # 統計情報
+        analysis_results["statistics"] = {
+            "total_products_with_choice_codes": len(analysis_results["products_with_choice_codes"]),
+            "percentage_with_codes": round(len(analysis_results["products_with_choice_codes"]) / len(order_items.data) * 100, 2),
+            "unique_choice_codes": len(analysis_results["choice_code_summary"]),
+            "most_common_codes": sorted(
+                analysis_results["choice_code_summary"].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:10]
+        }
+        
+        return analysis_results
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.post("/api/sync_rakuten_sku_to_database")
+async def sync_rakuten_sku_to_database(
+    manage_numbers: list[str] = Query(None, description="商品管理番号のリスト"),
+    limit: int = Query(10, description="処理件数上限")
+):
+    """楽天APIからSKU情報を取得しデータベースに保存"""
+    try:
+        from api.rakuten_api import RakutenAPI
+        
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 楽天APIクライアントの初期化
+        try:
+            rakuten_api = RakutenAPI()
+        except Exception as e:
+            return {
+                "error": f"楽天API初期化失敗: {str(e)}",
+                "suggestion": "楽天API認証情報を確認してください"
+            }
+        
+        sync_results = {
+            "status": "success",
+            "synced_products": [],
+            "failed_products": [],
+            "total_sku_saved": 0,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+        # 商品管理番号のリストを取得
+        if not manage_numbers:
+            # データベースから取得
+            order_items = supabase.table('order_items').select(
+                'product_code'
+            ).limit(limit).execute()
+            
+            if order_items.data:
+                manage_numbers = list(set(item['product_code'] for item in order_items.data if item.get('product_code')))
+            else:
+                return {"error": "処理対象の商品が見つかりません"}
+        
+        # 各商品のSKU情報を取得して保存
+        for manage_number in manage_numbers[:limit]:
+            try:
+                # 楽天APIからSKU情報を取得
+                product_details = await fetch_rakuten_product_sku(rakuten_api, manage_number)
+                
+                if product_details:
+                    # SKU情報をデータベースに保存
+                    for sku_info in product_details['sku_list']:
+                        # rakuten_sku_masterテーブルに保存
+                        sku_data = {
+                            "manage_number": manage_number,
+                            "rakuten_sku": sku_info['sku'],
+                            "choice_code": sku_info['choice_code'],
+                            "option_name": sku_info['option_name'],
+                            "sku_type": sku_info['type'],
+                            "created_at": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+                        }
+                        
+                        try:
+                            result = supabase.table('rakuten_sku_master').upsert(
+                                sku_data,
+                                on_conflict="manage_number,rakuten_sku"
+                            ).execute()
+                            sync_results["total_sku_saved"] += 1
+                        except Exception as db_error:
+                            # テーブルが存在しない場合のエラーをキャッチ
+                            pass
+                    
+                    sync_results["synced_products"].append({
+                        "manage_number": manage_number,
+                        "product_name": product_details['product_name'],
+                        "total_skus": product_details['total_variations'],
+                        "has_choice_codes": product_details['has_choice_codes']
+                    })
+                else:
+                    sync_results["failed_products"].append({
+                        "manage_number": manage_number,
+                        "reason": "楽天APIからデータ取得失敗"
+                    })
+                    
+            except Exception as e:
+                sync_results["failed_products"].append({
+                    "manage_number": manage_number,
+                    "reason": str(e)
+                })
+        
+        sync_results["summary"] = {
+            "total_processed": len(manage_numbers[:limit]),
+            "success_count": len(sync_results["synced_products"]),
+            "failed_count": len(sync_results["failed_products"]),
+            "recommendation": "データベーススキーマを更新してrakuten_sku_masterテーブルを作成してください"
+        }
+        
+        return sync_results
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 
