@@ -462,10 +462,19 @@ async def analyze_sold_products(
         end_date = datetime.now(pytz.timezone('Asia/Tokyo'))
         start_date = end_date - timedelta(days=days)
         
-        # order_itemsとordersをJOINして商品管理番号を取得
-        orders = supabase.table('order_items').select(
-            'product_code, product_name, order_id, orders(order_date, id)'
-        ).limit(limit).execute()
+        # まずorder_itemsから基本情報を取得（日付フィルタなし）
+        try:
+            orders = supabase.table('order_items').select(
+                'product_code, product_name, order_id'
+            ).limit(limit).execute()
+        except Exception as e:
+            # order_itemsテーブルが存在しない場合の代替手段
+            return {
+                "error": f"order_itemsテーブルへのアクセスエラー: {str(e)}",
+                "suggestion": "まず楽天APIから注文データを同期してください",
+                "sync_endpoint": "/api/platform_sync?platform=rakuten&action=sync",
+                "available_tables": "データベース構造を確認中..."
+            }
         
         if not orders.data:
             return {
@@ -539,6 +548,57 @@ async def analyze_sold_products(
                 "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
             }
         )
+
+@app.get("/api/check_database_structure")
+async def check_database_structure():
+    """データベース構造の確認"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        structure_info = {}
+        
+        # 主要テーブルの確認
+        tables_to_check = ['order_items', 'orders', 'inventory', 'platform']
+        
+        for table_name in tables_to_check:
+            try:
+                # テーブルの最初の1件を取得してカラム構造を確認
+                result = supabase.table(table_name).select('*').limit(1).execute()
+                if result.data and len(result.data) > 0:
+                    structure_info[table_name] = {
+                        "exists": True,
+                        "has_data": True,
+                        "sample_columns": list(result.data[0].keys()) if result.data[0] else [],
+                        "record_count_sample": len(result.data)
+                    }
+                else:
+                    structure_info[table_name] = {
+                        "exists": True,
+                        "has_data": False,
+                        "sample_columns": [],
+                        "record_count_sample": 0
+                    }
+            except Exception as e:
+                structure_info[table_name] = {
+                    "exists": False,
+                    "error": str(e)
+                }
+        
+        return {
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat(),
+            "database_structure": structure_info,
+            "recommendations": [
+                "order_itemsテーブルにデータがない場合: /api/platform_sync?platform=rakuten&action=sync を実行",
+                "カラム構造を確認してAPIを調整"
+            ]
+        }
+        
+    except Exception as e:
+        return {
+            "error": f"Database structure check failed: {str(e)}",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
 
 # アプリケーションの起動
 if __name__ == "__main__":
