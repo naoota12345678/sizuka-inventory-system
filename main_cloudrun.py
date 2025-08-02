@@ -88,6 +88,8 @@ async def root():
             "platform_sync": "/api/platform_sync",
             "mapping_tools": "/api/mapping_tools",
             "admin_tools": "/api/admin_tools",
+            "rakuten_analysis": "/api/analyze_sold_products",
+            "choice_codes": "/api/extract_choice_codes",
             "health": "/health",
             "docs": "/docs"
         }
