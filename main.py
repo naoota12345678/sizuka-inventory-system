@@ -26,6 +26,9 @@ from api.rakuten_api import RakutenAPI
 from api.inventory import RakutenConnector
 from api.sheets_sync import SHEETS_SYNC_AVAILABLE, sync_product_master
 
+# Remove problematic import to avoid deployment issues
+# from api.unified_platform_api import sync_rakuten_orders
+
 # ログ設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -467,6 +470,89 @@ async def debug_environment():
     }
     
     return result
+
+@app.get("/api/platform_sync")
+async def unified_platform_sync(
+    platform: str,
+    action: str = "sync",
+    date_from: str = None,
+    date_to: str = None
+):
+    """統合プラットフォーム同期API - 楽天対応"""
+    try:
+        if platform == "rakuten" and action == "sync":
+            # 実際の楽天同期を実行（直接実装）
+            try:
+                # 日付の設定
+                if not date_from:
+                    date_from = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+                if not date_to:
+                    date_to = datetime.now().strftime('%Y-%m-%d')
+                
+                start_date = datetime.strptime(date_from, '%Y-%m-%d').replace(tzinfo=pytz.UTC)
+                end_date = datetime.strptime(date_to, '%Y-%m-%d').replace(hour=23, minute=59, second=59, tzinfo=pytz.UTC)
+                
+                # 楽天API初期化
+                rakuten_api = RakutenAPI()
+                
+                # 注文データの取得
+                orders = rakuten_api.get_orders(start_date, end_date)
+                
+                if orders:
+                    # データベースに保存
+                    result = rakuten_api.save_to_supabase(orders)
+                    
+                    sync_result = {
+                        "status": "success",
+                        "message": f"楽天注文同期完了: {date_from} から {date_to}",
+                        "period": f"{date_from} - {date_to}",
+                        "orders_processed": result.get('total_orders', 0),
+                        "items_processed": result.get('items_success', 0),
+                        "success_rate": result.get('success_rate', '0%'),
+                        "details": result
+                    }
+                else:
+                    sync_result = {
+                        "status": "success",
+                        "message": f"指定期間にデータがありませんでした: {date_from} から {date_to}",
+                        "period": f"{date_from} - {date_to}",
+                        "orders_processed": 0,
+                        "items_processed": 0
+                    }
+                
+            except Exception as sync_error:
+                sync_result = {
+                    "status": "error",
+                    "message": f"楽天同期エラー: {str(sync_error)}",
+                    "date_from": date_from,
+                    "date_to": date_to
+                }
+            
+            return {
+                "platform": platform,
+                "action": action,
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat(),
+                "data": sync_result
+            }
+        elif platform == "rakuten" and action == "test":
+            return {
+                "platform": platform,
+                "action": action,
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat(),
+                "data": {"message": "楽天接続テスト", "status": "ok"}
+            }
+        else:
+            return {
+                "status": "error",
+                "message": f"未対応: platform={platform}, action={action}",
+                "supported": {"platform": ["rakuten"], "action": ["sync", "test"]}
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
 
 # アプリケーションの起動
 if __name__ == "__main__":

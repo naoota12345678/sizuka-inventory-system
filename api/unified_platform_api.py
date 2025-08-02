@@ -176,8 +176,46 @@ async def unified_admin_tools(
 
 # 楽天関連機能
 async def sync_rakuten_orders(date_from: str, date_to: str):
-    """楽天注文同期"""
-    return {"message": "楽天注文同期実行", "date_from": date_from, "date_to": date_to}
+    """楽天注文同期 - 実際の楽天APIから注文データを取得"""
+    try:
+        from datetime import datetime, timedelta
+        from api.rakuten_api import RakutenAPI
+        
+        # 日付の設定
+        if not date_from:
+            date_from = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+        if not date_to:
+            date_to = datetime.now().strftime('%Y-%m-%d')
+        
+        start_date = datetime.strptime(date_from, '%Y-%m-%d')
+        end_date = datetime.strptime(date_to, '%Y-%m-%d')
+        
+        # 楽天API初期化
+        rakuten_api = RakutenAPI()
+        
+        # 注文データの取得
+        orders = rakuten_api.get_orders(start_date, end_date)
+        
+        # データベースに保存
+        result = rakuten_api.save_to_supabase(orders)
+        
+        return {
+            "status": "success",
+            "message": f"楽天注文同期完了: {date_from} から {date_to}",
+            "period": f"{date_from} - {date_to}",
+            "orders_processed": result.get('total_orders', 0),
+            "items_processed": result.get('items_success', 0),
+            "success_rate": result.get('success_rate', '0%'),
+            "details": result
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"楽天同期エラー: {str(e)}",
+            "date_from": date_from,
+            "date_to": date_to
+        }
 
 async def analyze_rakuten_structure():
     """楽天SKU構造分析"""
