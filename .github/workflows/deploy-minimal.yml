@@ -1,0 +1,52 @@
+name: Deploy Minimal
+
+on:
+  workflow_dispatch:  # 手動実行のみ
+
+env:
+  PROJECT_ID: sizuka-inventory-system
+  SERVICE_NAME: sizuka-inventory-system
+  REGION: asia-northeast1
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Configure Docker for GCR
+      run: gcloud auth configure-docker
+
+    - name: Build and Push Docker image
+      run: |
+        docker build -f Dockerfile.cloudrun -t gcr.io/$PROJECT_ID/$SERVICE_NAME:latest .
+        docker push gcr.io/$PROJECT_ID/$SERVICE_NAME:latest
+
+    - name: Deploy to Cloud Run (minimal env vars)
+      run: |
+        gcloud run deploy $SERVICE_NAME \
+          --image gcr.io/$PROJECT_ID/$SERVICE_NAME:latest \
+          --region $REGION \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars "SUPABASE_URL=${{ secrets.SUPABASE_URL }},SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}" \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 300s \
+          --max-instances 10
+
+    - name: Add remaining env vars
+      run: |
+        gcloud run services update $SERVICE_NAME \
+          --region $REGION \
+          --update-env-vars "RAKUTEN_SERVICE_SECRET=${{ secrets.RAKUTEN_SERVICE_SECRET }},RAKUTEN_LICENSE_KEY=${{ secrets.RAKUTEN_LICENSE_KEY }}"
