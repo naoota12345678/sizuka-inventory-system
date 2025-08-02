@@ -87,6 +87,8 @@ async def root():
             "sales": "/api/sales_dashboard", 
             "platform_sync": "/api/platform_sync",
             "rakuten_analysis": "/api/analyze_sold_products",
+            "comprehensive_analysis": "/api/comprehensive_rakuten_analysis",
+            "family_detail": "/api/product_family_detail",
             "product_variations": "/api/get_rakuten_product_variations",
             "choice_codes": "/api/extract_choice_codes",
             "choice_demo": "/api/demo_choice_extraction",
@@ -859,6 +861,294 @@ async def analyze_unmapped_products():
             "unmapped_products": unmapped_products[:20],  # 最初の20件
             "next_step": "これらの商品に共通商品コードを割り当ててマッピングを作成してください",
             "mapping_endpoint": "/api/save_choice_mapping",
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/comprehensive_rakuten_analysis")
+async def comprehensive_rakuten_analysis(
+    months: int = Query(6, description="過去何ヶ月分のデータを分析するか"),
+    limit: int = Query(1000, description="分析する商品数の上限")
+):
+    """楽天商品の包括的分析（数ヶ月分の全データ）"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 過去N ヶ月分のデータを取得
+        from datetime import datetime, timedelta
+        import pytz
+        
+        end_date = datetime.now(pytz.timezone('Asia/Tokyo'))
+        start_date = end_date - timedelta(days=months * 30)
+        
+        # 全order_itemsデータを取得
+        order_items = supabase.table('order_items').select('*').limit(limit).execute()
+        
+        if not order_items.data:
+            return {"message": "注文データが見つかりません"}
+        
+        # 分析結果の初期化
+        analysis = {
+            "period": f"{start_date.strftime('%Y-%m-%d')} から {end_date.strftime('%Y-%m-%d')}",
+            "total_items": len(order_items.data),
+            "product_registration_patterns": {
+                "with_choice_codes": [],
+                "without_choice_codes": [],
+                "parent_child_candidates": [],
+                "single_products": []
+            },
+            "choice_code_analysis": {
+                "detected_codes": {},
+                "code_patterns": {},
+                "weight_size_patterns": {},
+                "special_attributes": {}
+            },
+            "product_families": {},
+            "unique_products": {},
+            "recommendations": []
+        }
+        
+        from core.utils import extract_choice_code_from_name
+        import re
+        
+        # 各商品を詳細分析
+        for item in order_items.data:
+            product_code = item.get('product_code', '')
+            product_name = item.get('product_name', '')
+            
+            if not product_code or not product_name:
+                continue
+            
+            # 基本情報を記録
+            if product_code not in analysis["unique_products"]:
+                analysis["unique_products"][product_code] = {
+                    "product_code": product_code,
+                    "product_name": product_name,
+                    "quantity": item.get('quantity', 0),
+                    "price": item.get('price', 0),
+                    "first_seen": item.get('created_at', ''),
+                    "occurrences": 0,
+                    "variations": []
+                }
+            
+            analysis["unique_products"][product_code]["occurrences"] += 1
+            
+            # 選択肢コード抽出
+            choice_code = extract_choice_code_from_name(product_name)
+            
+            # バリエーション情報抽出
+            variations = extract_variations_from_name(product_name)
+            
+            # 商品ファミリー分析（商品コードの前部分で分類）
+            family_code = product_code[:7] if len(product_code) >= 7 else product_code
+            if family_code not in analysis["product_families"]:
+                analysis["product_families"][family_code] = {
+                    "family_code": family_code,
+                    "products": [],
+                    "has_variations": False,
+                    "choice_codes": set(),
+                    "pattern_type": "unknown"
+                }
+            
+            analysis["product_families"][family_code]["products"].append({
+                "product_code": product_code,
+                "product_name": product_name,
+                "choice_code": choice_code,
+                "variations": variations
+            })
+            
+            if choice_code:
+                analysis["product_families"][family_code]["choice_codes"].add(choice_code)
+                analysis["product_families"][family_code]["has_variations"] = True
+            
+            # 登録パターン分類
+            if choice_code:
+                analysis["product_registration_patterns"]["with_choice_codes"].append({
+                    "product_code": product_code,
+                    "product_name": product_name[:100],
+                    "choice_code": choice_code,
+                    "variations": variations
+                })
+                
+                # 選択肢コード統計
+                if choice_code not in analysis["choice_code_analysis"]["detected_codes"]:
+                    analysis["choice_code_analysis"]["detected_codes"][choice_code] = 0
+                analysis["choice_code_analysis"]["detected_codes"][choice_code] += 1
+                
+            else:
+                analysis["product_registration_patterns"]["without_choice_codes"].append({
+                    "product_code": product_code,
+                    "product_name": product_name[:100],
+                    "might_be_parent": "◆" in product_name or "選択" in product_name,
+                    "variations": variations
+                })
+        
+        # 商品ファミリーのパターン分析
+        for family_code, family_data in analysis["product_families"].items():
+            product_count = len(family_data["products"])
+            choice_count = len(family_data["choice_codes"])
+            
+            if choice_count > 1:
+                family_data["pattern_type"] = "multi_choice"
+            elif choice_count == 1:
+                family_data["pattern_type"] = "single_choice"
+            elif product_count > 1:
+                family_data["pattern_type"] = "potential_variations"
+            else:
+                family_data["pattern_type"] = "single_product"
+            
+            # 商品ファミリーごとの選択肢コードをリストに変換
+            family_data["choice_codes"] = list(family_data["choice_codes"])
+        
+        # データを件数でソート
+        analysis["product_registration_patterns"]["with_choice_codes"] = \
+            analysis["product_registration_patterns"]["with_choice_codes"][:20]
+        analysis["product_registration_patterns"]["without_choice_codes"] = \
+            analysis["product_registration_patterns"]["without_choice_codes"][:20]
+        
+        # 重要な商品ファミリーのみ表示
+        important_families = {k: v for k, v in analysis["product_families"].items() 
+                            if len(v["products"]) > 1 or v["has_variations"]}
+        analysis["product_families"] = dict(list(important_families.items())[:10])
+        
+        # 推奨事項
+        analysis["recommendations"] = [
+            {
+                "priority": "高",
+                "action": "選択肢コード付き商品の優先マッピング",
+                "count": len(analysis["product_registration_patterns"]["with_choice_codes"]),
+                "description": "これらの商品は選択肢コードが明確なのでマッピングが容易"
+            },
+            {
+                "priority": "中", 
+                "action": "商品ファミリー分析によるバリエーション発見",
+                "count": len([f for f in analysis["product_families"].values() if f["pattern_type"] == "potential_variations"]),
+                "description": "同じファミリーコードで複数商品がある場合、隠れたバリエーションの可能性"
+            },
+            {
+                "priority": "中",
+                "action": "親商品候補の個別調査", 
+                "count": len([p for p in analysis["product_registration_patterns"]["without_choice_codes"] if p.get("might_be_parent")]),
+                "description": "◆や「選択」を含む商品名は親商品の可能性"
+            }
+        ]
+        
+        # 統計情報
+        analysis["statistics"] = {
+            "total_unique_products": len(analysis["unique_products"]),
+            "products_with_choice_codes": len(analysis["product_registration_patterns"]["with_choice_codes"]),
+            "products_without_choice_codes": len(analysis["product_registration_patterns"]["without_choice_codes"]),
+            "product_families_count": len(analysis["product_families"]),
+            "unique_choice_codes": len(analysis["choice_code_analysis"]["detected_codes"])
+        }
+        
+        return {
+            "status": "success",
+            "analysis": analysis,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/product_family_detail")
+async def product_family_detail(
+    family_code: str = Query(..., description="商品ファミリーコード (例: 1000005)")
+):
+    """特定の商品ファミリーの詳細分析"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 指定ファミリーコードで始まる全商品を取得
+        order_items = supabase.table('order_items').select('*').like(
+            'product_code', f'{family_code}%'
+        ).execute()
+        
+        if not order_items.data:
+            return {"message": f"ファミリーコード {family_code} の商品が見つかりません"}
+        
+        from core.utils import extract_choice_code_from_name
+        
+        family_analysis = {
+            "family_code": family_code,
+            "total_products": len(order_items.data),
+            "products": [],
+            "choice_code_distribution": {},
+            "pattern_analysis": {
+                "likely_parent_child": False,
+                "single_variations": False,
+                "mixed_pattern": False
+            },
+            "mapping_suggestions": []
+        }
+        
+        choice_codes = set()
+        has_parent_indicators = False
+        
+        for item in order_items.data:
+            product_code = item.get('product_code', '')
+            product_name = item.get('product_name', '')
+            
+            choice_code = extract_choice_code_from_name(product_name)
+            variations = extract_variations_from_name(product_name)
+            
+            if choice_code:
+                choice_codes.add(choice_code)
+                if choice_code not in family_analysis["choice_code_distribution"]:
+                    family_analysis["choice_code_distribution"][choice_code] = 0
+                family_analysis["choice_code_distribution"][choice_code] += 1
+            
+            if "◆" in product_name or "選択" in product_name:
+                has_parent_indicators = True
+            
+            family_analysis["products"].append({
+                "product_code": product_code,
+                "product_name": product_name,
+                "choice_code": choice_code,
+                "variations": variations,
+                "quantity": item.get('quantity', 0),
+                "price": item.get('price', 0),
+                "order_date": item.get('created_at', '')
+            })
+        
+        # パターン分析
+        if len(choice_codes) > 1:
+            family_analysis["pattern_analysis"]["likely_parent_child"] = True
+        elif has_parent_indicators:
+            family_analysis["pattern_analysis"]["single_variations"] = True
+        elif len(family_analysis["products"]) > 1:
+            family_analysis["pattern_analysis"]["mixed_pattern"] = True
+        
+        # マッピング提案
+        for i, product in enumerate(family_analysis["products"]):
+            choice_code = product["choice_code"] 
+            if choice_code:
+                suggested_common = f"CM{family_code[-3:]}_{choice_code}"
+            else:
+                suggested_common = f"CM{family_code[-3:]}_{i+1:02d}"
+            
+            family_analysis["mapping_suggestions"].append({
+                "rakuten_code": product["product_code"],
+                "choice_code": choice_code,
+                "suggested_common_code": suggested_common,
+                "confidence": 90 if choice_code else 60
+            })
+        
+        return {
+            "status": "success",
+            "family_analysis": family_analysis,
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
         
