@@ -1617,6 +1617,106 @@ async def check_database_structure():
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 
+@app.get("/api/get_rakuten_sku_info")
+async def get_rakuten_sku_info(management_number: str = Query(..., description="楽天商品管理番号")):
+    """楽天APIから実際のSKU情報を取得"""
+    try:
+        if not Config.RAKUTEN_SERVICE_SECRET or not Config.RAKUTEN_LICENSE_KEY:
+            return {
+                "status": "error",
+                "message": "楽天API認証情報が設定されていません",
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        
+        # 楽天APIクライアントを作成
+        rakuten_api = RakutenAPI()
+        
+        # SKU情報を取得
+        sku_info = rakuten_api.get_rakuten_sku_info(management_number)
+        
+        return {
+            "status": "success",
+            "data": sku_info,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"楽天SKU情報取得エラー: {str(e)}")
+        return {
+            "status": "error", 
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/bulk_fetch_rakuten_skus")
+async def bulk_fetch_rakuten_skus(limit: int = Query(10, description="取得件数")):
+    """データベース内の商品管理番号から楽天SKU情報を一括取得"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        if not Config.RAKUTEN_SERVICE_SECRET or not Config.RAKUTEN_LICENSE_KEY:
+            return {
+                "status": "error",
+                "message": "楽天API認証情報が設定されていません"
+            }
+        
+        # データベースから商品管理番号を取得
+        order_items = supabase.table('order_items').select('product_code').limit(limit).execute()
+        
+        if not order_items.data:
+            return {
+                "status": "warning",
+                "message": "データベースに商品データが見つかりません"
+            }
+        
+        # 楽天APIクライアントを作成
+        rakuten_api = RakutenAPI()
+        
+        results = {
+            "successful_retrievals": [],
+            "failed_retrievals": [],
+            "summary": {
+                "total_attempted": 0,
+                "successful_count": 0,
+                "failed_count": 0
+            }
+        }
+        
+        # 重複を除去
+        unique_codes = list(set([item['product_code'] for item in order_items.data if item['product_code']]))
+        results["summary"]["total_attempted"] = len(unique_codes)
+        
+        for management_number in unique_codes:
+            try:
+                sku_info = rakuten_api.get_rakuten_sku_info(management_number)
+                results["successful_retrievals"].append({
+                    "management_number": management_number,
+                    "sku_data": sku_info
+                })
+                results["summary"]["successful_count"] += 1
+                
+            except Exception as e:
+                results["failed_retrievals"].append({
+                    "management_number": management_number,
+                    "error": str(e)
+                })
+                results["summary"]["failed_count"] += 1
+        
+        return {
+            "status": "success",
+            "data": results,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"一括SKU情報取得エラー: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
 # アプリケーションの起動
 if __name__ == "__main__":
     import uvicorn

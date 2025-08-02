@@ -388,3 +388,98 @@ class RakutenAPI:
                 if attempt == max_retries - 1:
                     raise
                 time.sleep(delay)
+
+    def get_item_detail(self, item_url: str) -> Dict[str, Any]:
+        """商品詳細情報をURLから取得"""
+        url = f'{self.base_url}/items/get'
+        
+        # URLから商品IDを抽出
+        import re
+        match = re.search(r'/([^/]+)/$', item_url)
+        if not match:
+            raise ValueError(f"商品URLから商品IDを抽出できません: {item_url}")
+        
+        item_id = match.group(1)
+        
+        request_data = {
+            "itemId": item_id
+        }
+        
+        try:
+            with httpx.Client() as client:
+                response = client.post(
+                    url,
+                    headers=self.headers,
+                    json=request_data,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="認証に失敗しました")
+                
+                response.raise_for_status()
+                return response.json()
+                
+        except Exception as e:
+            logger.error(f"商品詳細取得エラー: {str(e)}")
+            raise
+
+    def get_rakuten_sku_info(self, management_number: str) -> Dict[str, Any]:
+        """管理商品番号から楽天SKU情報を取得"""
+        url = f'{self.base_url}/items/search'
+        
+        search_data = {
+            "searchType": 1,  # 商品管理番号で検索
+            "searchValue": management_number,
+            "PaginationRequestModel": {
+                "requestRecordsAmount": 100,
+                "requestPage": 1
+            }
+        }
+        
+        try:
+            with httpx.Client() as client:
+                response = client.post(
+                    url,
+                    headers=self.headers,
+                    json=search_data,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 401:
+                    raise HTTPException(status_code=401, detail="認証に失敗しました")
+                
+                response.raise_for_status()
+                data = response.json()
+                
+                # 商品情報から実際のSKUを抽出
+                items = data.get('ItemModelList', [])
+                sku_info = {}
+                
+                for item in items:
+                    # 楽天の実際のSKU情報を抽出
+                    sku_models = item.get('SkuModelList', [])
+                    for sku in sku_models:
+                        sku_id = sku.get('skuId')  # 実際の楽天SKU
+                        variant_id = sku.get('variantId')
+                        merchant_sku = sku.get('merchantDefinedSkuId')
+                        
+                        if sku_id:
+                            sku_info[str(sku_id)] = {
+                                'variant_id': variant_id,
+                                'merchant_sku': merchant_sku,
+                                'item_name': item.get('itemName', ''),
+                                'item_number': item.get('itemNumber', ''),
+                                'sku_info': sku.get('skuInfo', {})
+                            }
+                
+                return {
+                    'management_number': management_number,
+                    'total_skus': len(sku_info),
+                    'sku_details': sku_info,
+                    'raw_data': data
+                }
+                
+        except Exception as e:
+            logger.error(f"楽天SKU情報取得エラー: {str(e)}")
+            raise
