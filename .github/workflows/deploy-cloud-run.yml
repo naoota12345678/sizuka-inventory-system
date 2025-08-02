@@ -32,6 +32,26 @@ jobs:
     - name: Configure Docker for GCR
       run: gcloud auth configure-docker
 
+    - name: Check environment and files
+      run: |
+        echo "Current directory:"
+        pwd
+        echo "Files in directory:"
+        ls -la
+        echo "Checking Dockerfile.cloudrun:"
+        if [ -f Dockerfile.cloudrun ]; then
+          echo "Dockerfile.cloudrun exists"
+          head -10 Dockerfile.cloudrun
+        else
+          echo "ERROR: Dockerfile.cloudrun not found!"
+          exit 1
+        fi
+        echo "Checking secrets availability:"
+        if [ -z "${{ secrets.SUPABASE_URL }}" ]; then echo "WARNING: SUPABASE_URL is empty"; fi
+        if [ -z "${{ secrets.SUPABASE_KEY }}" ]; then echo "WARNING: SUPABASE_KEY is empty"; fi
+        if [ -z "${{ secrets.RAKUTEN_SERVICE_SECRET }}" ]; then echo "WARNING: RAKUTEN_SERVICE_SECRET is empty"; fi
+        if [ -z "${{ secrets.RAKUTEN_LICENSE_KEY }}" ]; then echo "WARNING: RAKUTEN_LICENSE_KEY is empty"; fi
+
     - name: Build Docker image
       run: |
         docker build -f Dockerfile.cloudrun -t gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} .
@@ -42,6 +62,7 @@ jobs:
 
     - name: Deploy to Cloud Run
       run: |
+        echo "Deploying to Cloud Run..."
         gcloud run deploy ${{ env.SERVICE_NAME }} \
           --image gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
           --region ${{ env.REGION }} \
@@ -51,7 +72,7 @@ jobs:
           --memory 1Gi \
           --cpu 1 \
           --timeout 300s \
-          --max-instances 10
+          --max-instances 10 || (echo "Deploy failed with exit code $?"; exit 1)
 
     - name: Get Service URL
       run: |
