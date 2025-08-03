@@ -19,9 +19,13 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の設定（Cloud Runの環境変数を優先）
-# 正しいSupabaseプロジェクトを使用
-os.environ.setdefault('SUPABASE_URL', 'https://mgswnwrkufayotlqqjxf.supabase.co')
-# SUPABASE_KEYはCloud Runの環境変数から取得
+# 正しいSupabaseプロジェクト: rakuten-sales-data
+os.environ['SUPABASE_URL'] = 'https://equrcpeifogdrxoldkpe.supabase.co'
+os.environ['SUPABASE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ'
+
+# core.databaseの既存クライアントをリセット（環境変数変更を反映）
+from core.database import Database
+Database.reset_client()
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -46,11 +50,16 @@ app.add_middleware(
 # Supabase接続
 from supabase import create_client, Client
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# 新しいSupabaseプロジェクト設定を強制適用
+SUPABASE_URL = os.environ['SUPABASE_URL']
+SUPABASE_KEY = os.environ['SUPABASE_KEY']
+
+logger.info(f"Supabase接続先: {SUPABASE_URL}")
+logger.info(f"Supabaseキー長: {len(SUPABASE_KEY) if SUPABASE_KEY else 0}")
 
 if SUPABASE_URL and SUPABASE_KEY:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("新しいSupabaseクライアントを作成しました")
 else:
     supabase = None
     logger.error("Supabase接続情報が設定されていません")
@@ -75,6 +84,48 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"起動時の軽微なエラー: {str(e)}")
 
+@app.get("/debug_supabase_connection")
+async def debug_supabase_connection():
+    """現在のSupabase接続先を確認"""
+    try:
+        from core.database import Database
+        
+        # 環境変数の確認
+        current_url = os.environ.get('SUPABASE_URL', 'Not set')
+        current_key_length = len(os.environ.get('SUPABASE_KEY', '')) if os.environ.get('SUPABASE_KEY') else 0
+        
+        # Supabaseクライアントの確認
+        client = Database.get_client()
+        client_url = getattr(client, 'supabase_url', 'Unknown') if client else 'No client'
+        
+        # 実際にクエリを実行してプロジェクトを確認
+        test_result = None
+        if client:
+            try:
+                test_query = client.table('platform').select('*').limit(1).execute()
+                test_result = test_query.data[0] if test_query.data else "No data"
+            except Exception as e:
+                test_result = f"Query error: {str(e)}"
+        
+        return {
+            "status": "success",
+            "environment_vars": {
+                "SUPABASE_URL": current_url,
+                "SUPABASE_KEY_LENGTH": current_key_length
+            },
+            "client_info": {
+                "client_url": client_url,
+                "client_exists": client is not None
+            },
+            "test_query": test_result,
+            "expected_url": "https://equrcpeifogdrxoldkpe.supabase.co"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 @app.get("/")
 async def root():
     """メイン画面"""
@@ -88,6 +139,7 @@ async def root():
             "platform_sync": "/api/platform_sync",
             "rakuten_analysis": "/api/analyze_sold_products",
             "comprehensive_analysis": "/api/comprehensive_rakuten_analysis",
+            "debug": "/debug_supabase_connection",
             "sku_structure_analysis": "/api/analyze_rakuten_sku_structure",
             "family_detail": "/api/product_family_detail",
             "product_variations": "/api/get_rakuten_product_variations",
@@ -127,6 +179,329 @@ async def health_check():
             "error": str(e),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
+
+@app.get("/api/check_real_order_items")
+async def check_real_order_items():
+    """order_itemsテーブルの実際のデータを確認"""
+    try:
+        # 1. 総件数
+        count_response = supabase.table("order_items").select("id", count="exact").execute()
+        total_count = len(count_response.data) if count_response.data else 0
+        
+        # 2. 最新10件
+        latest_response = supabase.table("order_items").select("*").order("created_at", desc=True).limit(10).execute()
+        latest_items = latest_response.data if latest_response.data else []
+        
+        # 3. 日付範囲確認（ordersテーブルと結合）
+        date_response = supabase.table("order_items").select("""
+            id, created_at, product_code, product_name, rakuten_sku, choice_code,
+            orders!inner(order_date, order_number)
+        """).order("orders.order_date", desc=True).execute()
+        
+        date_items = date_response.data if date_response.data else []
+        
+        # 日付の集計
+        dates = []
+        monthly_count = {}
+        sku_count = 0
+        choice_count = 0
+        
+        for item in date_items:
+            if item.get('orders') and item['orders'].get('order_date'):
+                order_date = item['orders']['order_date']
+                dates.append(order_date)
+                month = order_date[:7]  # YYYY-MM
+                monthly_count[month] = monthly_count.get(month, 0) + 1
+            
+            if item.get('rakuten_sku'):
+                sku_count += 1
+            if item.get('choice_code'):
+                choice_count += 1
+        
+        dates.sort()
+        
+        return {
+            "status": "success",
+            "summary": {
+                "total_records": total_count,
+                "sku_registered": sku_count,
+                "choice_code_registered": choice_count,
+                "date_range": {
+                    "oldest": dates[0] if dates else None,
+                    "newest": dates[-1] if dates else None
+                },
+                "monthly_distribution": dict(sorted(monthly_count.items()))
+            },
+            "latest_10_samples": [
+                {
+                    "created_at": item.get("created_at"),
+                    "product_code": item.get("product_code"),
+                    "product_name": item.get("product_name", "")[:50] + "...",
+                    "rakuten_sku": item.get("rakuten_sku", "なし"),
+                    "choice_code": item.get("choice_code", "なし"),
+                    "quantity": item.get("quantity", 0),
+                    "price": item.get("price", 0)
+                }
+                for item in latest_items[:10]
+            ]
+        }
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.get("/api/force_rakuten_sync")
+async def force_rakuten_sync(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
+):
+    """楽天注文データを強制同期（SKU・選択肢コード付き）"""
+    try:
+        from api.rakuten_api import RakutenAPI
+        from datetime import datetime, timedelta
+        
+        # デフォルト期間（過去7日）
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        
+        # 楽天API初期化
+        rakuten_api = RakutenAPI()
+        
+        # 日付をdatetimeに変換
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        logger.info(f"楽天注文同期開始: {start_date} - {end_date}")
+        
+        # 注文データ取得
+        orders = rakuten_api.get_orders(start_dt, end_dt)
+        
+        if not orders:
+            return {
+                "status": "success",
+                "message": "指定期間に注文データが見つかりませんでした",
+                "period": f"{start_date} - {end_date}",
+                "orders_count": 0
+            }
+        
+        # Supabaseに保存
+        save_result = rakuten_api.save_to_supabase(orders)
+        
+        return {
+            "status": "success",
+            "message": "楽天注文データの同期が完了しました",
+            "period": f"{start_date} - {end_date}",
+            "orders_fetched": len(orders),
+            "save_result": save_result,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"楽天同期エラー: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/sales_data_complete")
+async def get_sales_data_complete(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)"),
+    page: int = Query(1, ge=1, description="ページ番号"),
+    per_page: int = Query(50, ge=1, le=1000, description="1ページあたりの件数")
+):
+    """SKUと選択肢コードを含む完全な販売データ一覧"""
+    try:
+        # デフォルト期間（過去30日）
+        if not end_date:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        
+        # order_itemsとordersテーブルを結合してデータ取得
+        query = supabase.table("order_items").select("""
+            *,
+            orders!inner(
+                order_number,
+                order_date,
+                platform_id,
+                total_amount,
+                order_status
+            )
+        """)
+        
+        # 日付フィルタ
+        query = query.gte("orders.order_date", f"{start_date}T00:00:00")
+        query = query.lte("orders.order_date", f"{end_date}T23:59:59")
+        
+        # 楽天のみフィルタ（platform_id=1）
+        query = query.eq("orders.platform_id", 1)
+        
+        # ソート（新しい順）
+        query = query.order("orders.order_date", desc=True)
+        
+        # ページネーション
+        offset = (page - 1) * per_page
+        query = query.range(offset, offset + per_page - 1)
+        
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # データ整形
+        formatted_items = []
+        for item in items:
+            order_info = item.get("orders", {})
+            formatted_item = {
+                "注文番号": order_info.get("order_number", ""),
+                "注文日": order_info.get("order_date", ""),
+                "商品コード": item.get("product_code", ""),
+                "商品名": item.get("product_name", ""),
+                "楽天SKU": item.get("rakuten_sku", ""),
+                "選択肢コード": item.get("choice_code", ""),
+                "数量": item.get("quantity", 0),
+                "単価": item.get("price", 0),
+                "小計": item.get("quantity", 0) * item.get("price", 0),
+                "JANコード": item.get("jan_code", ""),
+                "ブランド": item.get("brand_name", ""),
+                "カテゴリ": item.get("category_path", ""),
+                "楽天商品番号": item.get("rakuten_item_number", ""),
+                "重量": item.get("weight_info", ""),
+                "サイズ": item.get("size_info", "")
+            }
+            formatted_items.append(formatted_item)
+        
+        # 総件数を取得
+        count_query = supabase.table("order_items").select("id", count="exact")
+        count_query = count_query.gte("orders.order_date", f"{start_date}T00:00:00")
+        count_query = count_query.lte("orders.order_date", f"{end_date}T23:59:59")
+        count_query = count_query.eq("orders.platform_id", 1)
+        count_response = count_query.execute()
+        total_count = len(count_response.data) if count_response.data else 0
+        
+        # 集計情報
+        total_orders = len(set([item["注文番号"] for item in formatted_items]))
+        total_quantity = sum([item["数量"] for item in formatted_items])
+        total_amount = sum([item["小計"] for item in formatted_items])
+        sku_registered = len([item for item in formatted_items if item["楽天SKU"]])
+        choice_registered = len([item for item in formatted_items if item["選択肢コード"]])
+        
+        return {
+            "status": "success",
+            "期間": f"{start_date} ～ {end_date}",
+            "ページ情報": {
+                "現在ページ": page,
+                "1ページあたり": per_page,
+                "総件数": total_count,
+                "総ページ数": (total_count + per_page - 1) // per_page
+            },
+            "集計": {
+                "総注文数": total_orders,
+                "総商品数": total_quantity,
+                "総売上": total_amount,
+                "SKU登録済み": sku_registered,
+                "選択肢コード登録済み": choice_registered,
+                "SKU登録率": f"{sku_registered/len(formatted_items)*100:.1f}%" if formatted_items else "0%",
+                "選択肢コード登録率": f"{choice_registered/len(formatted_items)*100:.1f}%" if formatted_items else "0%"
+            },
+            "販売データ": formatted_items,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"販売データ取得エラー: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+@app.get("/api/debug_connection")
+async def debug_connection():
+    """現在のSupabase接続状況をデバッグ"""
+    try:
+        import os
+        from core.database import supabase
+        
+        # 環境変数の確認
+        current_url = os.environ.get('SUPABASE_URL', 'Not set')
+        current_key = os.environ.get('SUPABASE_KEY', 'Not set')
+        
+        # Supabaseクライアントの確認
+        supabase_client_url = getattr(supabase, 'supabase_url', 'Unknown') if supabase else 'No client'
+        
+        # 実際にクエリを実行してプロジェクトを確認
+        test_result = None
+        if supabase:
+            try:
+                # platformテーブルからデータを取得
+                test_query = supabase.table('platform').select('*').limit(1).execute()
+                test_result = {
+                    "query_success": True,
+                    "data_count": len(test_query.data) if test_query.data else 0,
+                    "sample_data": test_query.data[0] if test_query.data else None
+                }
+            except Exception as query_error:
+                test_result = {
+                    "query_success": False,
+                    "error": str(query_error)
+                }
+        
+        return {
+            "status": "debug_info",
+            "environment_variables": {
+                "SUPABASE_URL": current_url,
+                "SUPABASE_KEY_length": len(current_key) if current_key != 'Not set' else 0
+            },
+            "supabase_client": {
+                "client_exists": supabase is not None,
+                "client_url": supabase_client_url
+            },
+            "connection_test": test_result,
+            "expected_new_project": {
+                "url": "https://equrcpeifogdrxoldkpe.supabase.co",
+                "project_name": "rakuten-sales-data"
+            },
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "debug_error",
+            "message": str(e)
+        }
+
+@app.get("/api/check_environment")
+async def check_environment():
+    """Cloud Runの実際の環境変数を確認"""
+    import os
+    
+    # 重要な環境変数をチェック
+    env_vars = {
+        "SUPABASE_URL": os.environ.get('SUPABASE_URL', 'NOT_SET'),
+        "SUPABASE_KEY_length": len(os.environ.get('SUPABASE_KEY', '')),
+        "RAKUTEN_SERVICE_SECRET_length": len(os.environ.get('RAKUTEN_SERVICE_SECRET', '')),
+        "RAKUTEN_LICENSE_KEY_length": len(os.environ.get('RAKUTEN_LICENSE_KEY', '')),
+    }
+    
+    # Supabaseクライアントの実際のURL
+    supabase_client_url = None
+    if supabase:
+        # Supabaseクライアントの内部情報を取得
+        try:
+            supabase_client_url = supabase.supabase_url
+        except:
+            supabase_client_url = "Unknown"
+    
+    return {
+        "cloud_run_environment": env_vars,
+        "supabase_client_url": supabase_client_url,
+        "expected_url": "https://equrcpeifogdrxoldkpe.supabase.co",
+        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+    }
 
 # ===== 在庫管理API =====
 @app.get("/api/inventory_list")

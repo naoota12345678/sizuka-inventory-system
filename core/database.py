@@ -25,15 +25,24 @@ class Database:
         return cls._instance
     
     @classmethod
+    def reset_client(cls):
+        """クライアントをリセット（環境変数変更時に使用）"""
+        cls._instance = None
+    
+    @classmethod
     def _initialize_client(cls) -> Optional[Client]:
         """Supabaseクライアントを初期化"""
         try:
-            if not Config.SUPABASE_URL or not Config.SUPABASE_KEY:
+            # 動的に環境変数を取得
+            supabase_url = Config.get_supabase_url()
+            supabase_key = Config.get_supabase_key()
+            
+            if not supabase_url or not supabase_key:
                 logger.warning("Supabase認証情報が設定されていません")
                 return None
             
-            client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
-            logger.info("Supabaseクライアントを正常に初期化しました")
+            client = create_client(supabase_url, supabase_key)
+            logger.info(f"Supabaseクライアントを正常に初期化しました: {supabase_url}")
             return client
             
         except Exception as e:
@@ -55,5 +64,8 @@ class Database:
             logger.error(f"データベース接続テストに失敗しました: {e}")
             return False
 
-# グローバルなSupabaseクライアントインスタンス
-supabase = Database.get_client()
+# グローバルなSupabaseクライアントインスタンス（動的に取得）
+def get_supabase():
+    return Database.get_client()
+
+supabase = get_supabase()

@@ -18,7 +18,7 @@ import pytz
 from fastapi import HTTPException
 
 from core.config import Config
-from core.database import supabase
+from core.database import Database
 from core.utils import extract_product_code_prefix, extract_sku_data, extract_selected_choices
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,7 @@ class RakutenAPI:
         MAX_RETRIES = 3
         RETRY_DELAY = 1
         
+        supabase = Database.get_client()
         if not supabase:
             raise ValueError("Supabaseクライアントが初期化されていません")
         
@@ -156,14 +157,14 @@ class RakutenAPI:
 
                     # 注文データの保存（重複チェック付き）
                     # 既存注文をチェック
-                    existing = supabase.table("orders").select("id").eq("order_number", order_data["order_number"]).execute()
+                    existing = Database.get_client().table("orders").select("id").eq("order_number", order_data["order_number"]).execute()
                     
                     if existing.data:
                         # 既存の注文があれば更新
-                        order_result = supabase.table("orders").update(order_data).eq("order_number", order_data["order_number"]).execute()
+                        order_result = Database.get_client().table("orders").update(order_data).eq("order_number", order_data["order_number"]).execute()
                     else:
                         # 新規注文として挿入
-                        order_result = supabase.table("orders").insert(order_data).execute()
+                        order_result = Database.get_client().table("orders").insert(order_data).execute()
 
                     if not order_result.data:
                         raise Exception(f"注文の保存に失敗: {order_number}")
@@ -245,7 +246,7 @@ class RakutenAPI:
                         item_data = self._prepare_item_data(item, order_id, is_parent=False)
                         
                         # 商品データの保存
-                        item_result = supabase.table("order_items").insert(item_data).execute()
+                        item_result = Database.get_client().table("order_items").insert(item_data).execute()
                         
                         if not item_result.data:
                             raise Exception(f"商品データの保存に失敗: {item_data['product_code']}")
@@ -322,9 +323,36 @@ class RakutenAPI:
         # ショップ情報
         shop_item_code = item.get("shopItemCode", "")
         
-        # 選択肢コードを商品名から抽出
-        from core.utils import extract_choice_code_from_name
-        choice_code = extract_choice_code_from_name(item_name)
+        # 楽天APIのselectedChoiceフィールドから選択肢コードを正確に抽出
+        choice_code = ""
+        selected_choices = []
+        
+        # selectedChoiceフィールドから直接選択肢コードを取得
+        if "selectedChoice" in item and item["selectedChoice"]:
+            selected_choice_data = item["selectedChoice"]
+            if isinstance(selected_choice_data, list):
+                # リスト形式の場合
+                for choice in selected_choice_data:
+                    if isinstance(choice, dict):
+                        choice_name = choice.get("choiceName", "")
+                        choice_value = choice.get("choiceValue", "")
+                        if choice_name and choice_value:
+                            selected_choices.append(f"{choice_name}:{choice_value}")
+                choice_code = ",".join(selected_choices)
+            elif isinstance(selected_choice_data, dict):
+                # 辞書形式の場合
+                choice_name = selected_choice_data.get("choiceName", "")
+                choice_value = selected_choice_data.get("choiceValue", "")
+                if choice_name and choice_value:
+                    choice_code = f"{choice_name}:{choice_value}"
+            elif isinstance(selected_choice_data, str):
+                # 文字列形式の場合
+                choice_code = selected_choice_data
+        
+        # selectedChoiceが空の場合、商品名から抽出を試行（フォールバック）
+        if not choice_code:
+            from core.utils import extract_choice_code_from_name
+            choice_code = extract_choice_code_from_name(item_name)
         
         # その他の詳細情報
         item_description = item.get("itemDescription", "")
@@ -379,7 +407,7 @@ class RakutenAPI:
         
         # 親商品のデータを保存
         parent_data = self._prepare_item_data(parent_item, order_id, is_parent=True)
-        parent_result = supabase.table("order_items").insert(parent_data).execute()
+        parent_result = Database.get_client().table("order_items").insert(parent_data).execute()
         
         if not parent_result.data:
             raise Exception(f"親商品の保存に失敗: {parent_data['product_code']}")
@@ -416,7 +444,7 @@ class RakutenAPI:
             )
             
             # 子商品データの保存
-            child_result = supabase.table("order_items").insert(child_item_data).execute()
+            child_result = Database.get_client().table("order_items").insert(child_item_data).execute()
             
             if not child_result.data:
                 raise Exception(f"子商品の保存に失敗: {child_item_data['product_code']}")
@@ -438,12 +466,13 @@ class RakutenAPI:
 
     def _get_platform_id_with_retry(self, max_retries=3, delay=1):
         """Platform IDの取得（リトライ機能付き）"""
+        supabase = Database.get_client()
         if not supabase:
             raise ValueError("Supabaseクライアントが初期化されていません")
         
         for attempt in range(max_retries):
             try:
-                response = supabase.table("platform").select("id").eq("platform_code", "rakuten").execute()
+                response = Database.get_client().table("platform").select("id").eq("platform_code", "rakuten").execute()
                 if response.data:
                     return response
                 raise ValueError("プラットフォーム 'rakuten' が見つかりません")
@@ -572,14 +601,14 @@ class RakutenAPI:
             }
             
             # 重複チェック
-            existing = supabase.table("product_mapping_rakuten").select("id").eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+            existing = Database.get_client().table("product_mapping_rakuten").select("id").eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
             
             if existing.data:
                 # 既存レコードを更新
-                result = supabase.table("product_mapping_rakuten").update(mapping_data).eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+                result = Database.get_client().table("product_mapping_rakuten").update(mapping_data).eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
             else:
                 # 新規レコードを挿入
-                result = supabase.table("product_mapping_rakuten").insert(mapping_data).execute()
+                result = Database.get_client().table("product_mapping_rakuten").insert(mapping_data).execute()
             
             if result.data:
                 logger.info(f"SKUマッピング保存成功: {management_number} -> {rakuten_sku} -> {common_product_code}")

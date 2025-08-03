@@ -105,6 +105,69 @@ https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczu
 - `api/rakuten_api.py` - 楽天API連携
 - `main_cloudrun.py` - Cloud Runメインファイル
 
+## Supabase Python Client API のトラブルシューティング
+
+### よくあるエラーと修正方法
+
+1. **`'SyncSelectRequestBuilder' object has no attribute 'or_'`**
+   - **原因**: Supabase Python Clientの`or_()`構文の使用方法が間違っている
+   - **間違った例**: `query.or_(f"column1.ilike.%{search}%,column2.ilike.%{search}%")`
+   - **正しい修正**: `query.ilike('column1', f'%{search}%')` を使用
+   - **または**: 複数条件の場合はクライアント側でフィルタリング
+
+2. **`invalid input syntax for type integer: "column_name"`**
+   - **原因**: SQL内での列同士の比較（`current_stock <= minimum_stock`）
+   - **間違った例**: `query.lte('current_stock', 'minimum_stock')`
+   - **正しい修正**: クライアント側でフィルタリング
+   ```python
+   items = [item for item in items if item['current_stock'] <= item['minimum_stock']]
+   ```
+
+3. **Supabase検索クエリのベストプラクティス**
+   - **単一検索**: `query.ilike('column_name', f'%{search}%')`
+   - **数値比較**: `query.lte('column_name', number_value)`
+   - **複雑な条件**: サーバー側ではなくクライアント側で処理
+   - **並び順**: `query.order('column_name', desc=False)`
+
+4. **エラーハンドリングのパターン**
+   ```python
+   try:
+       response = query.execute()
+       items = response.data if response.data else []
+       # クライアント側フィルタリング
+       if complex_condition:
+           items = [item for item in items if condition(item)]
+   except Exception as e:
+       return {"status": "error", "message": str(e)}
+   ```
+
+### API開発の重要なポイント
+- **段階的テスト**: 基本機能→検索機能→フィルター機能の順でテスト
+- **エラーレスポンス**: 常に200ステータスでエラー詳細を返す
+- **クライアント側処理**: 複雑なSQL条件はPythonで処理する方が安全
+
+## Docker & Cloud Run デプロイメントの重要事項
+
+### Dockerfile の確認ポイント
+1. **使用されるメインファイル**
+   - `Dockerfile.cloudrun` では `main_cloudrun.py` が使用される
+   - `CMD exec uvicorn main_cloudrun:app --host 0.0.0.0 --port $PORT`
+
+2. **ハードコードされた環境変数の確認**
+   - `main_cloudrun.py` 内の `os.environ.setdefault()` をチェック
+   - 古いSupabase URLがハードコードされていないか必ず確認
+
+3. **環境変数の優先順位**
+   - GitHub Actions: `--set-env-vars` 
+   - Cloud Run直接設定: `gcloud run services update`
+   - コード内: `os.environ.setdefault()` (既存値がない場合のみ)
+   - コード内: `os.environ['KEY'] = value` (強制上書き)
+
+### トラブルシューティングの手順
+1. **まずコードレベルのハードコードを確認** (`grep` コマンド使用)
+2. **Dockerfileで使用されるメインファイルを確認**
+3. **環境変数設定は最後の手段**
+
 ## トラブルシューティング
 
 ### よくある問題

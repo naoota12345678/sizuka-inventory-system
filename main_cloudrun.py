@@ -19,8 +19,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の設定
-os.environ.setdefault('SUPABASE_URL', 'https://jvkkvhdqtotbotjzngcv.supabase.co')
-os.environ.setdefault('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp2a2t2aGRxdG90Ym90anpuZ2N2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjIzOTk5NjAsImV4cCI6MjAzNzk3NTk2MH0.A64VUJBkQ-ePdQ5dX3hPQonpOBDiC73GHhxOKWj-1Zk')
+os.environ.setdefault('SUPABASE_URL', 'https://equrcpeifogdrxoldkpe.supabase.co')
+os.environ.setdefault('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ')
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -2081,6 +2081,54 @@ async def bulk_fetch_rakuten_skus(limit: int = Query(10, description="取得件�
         return {
             "status": "error",
             "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
+@app.get("/api/debug_rakuten_sync")
+async def debug_rakuten_sync(start_date: str = "2025-08-01", end_date: str = "2025-08-03"):
+    """楽天同期の詳細デバッグ情報"""
+    try:
+        from api.rakuten_api import RakutenAPI
+        from datetime import datetime
+        import pytz
+        
+        # 日付の解析
+        start_dt = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Tokyo'))
+        end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=pytz.timezone('Asia/Tokyo'))
+        
+        rakuten_api = RakutenAPI()
+        
+        # 楽天APIから注文データを取得
+        orders = rakuten_api.get_orders(start_dt, end_dt)
+        
+        debug_info = {
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat(),
+            "search_period": {
+                "start_date": start_date,
+                "end_date": end_date
+            },
+            "rakuten_api_result": {
+                "orders_found": len(orders) if orders else 0,
+                "orders_sample": orders[:2] if orders else [],
+                "api_connection": "success" if orders is not None else "failed"
+            }
+        }
+        
+        if orders:
+            # 注文データをSupabaseに保存を試行
+            save_result = rakuten_api.save_to_supabase(orders)
+            debug_info["supabase_save_result"] = save_result
+        else:
+            debug_info["supabase_save_result"] = "No orders to save"
+        
+        return debug_info
+        
+    except Exception as e:
+        import traceback
+        return {
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc(),
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 

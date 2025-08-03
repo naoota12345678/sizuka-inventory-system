@@ -9,8 +9,8 @@ def apply_sql_file(filename):
     """SQLファイルをSupabaseに適用"""
     try:
         # Supabase接続
-        supabase_url = "https://mgswnwrkufayotlqqjxf.supabase.co"
-        supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nc3dud3JrdWZheW90bHFxanhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ4NzM4ODIsImV4cCI6MjA1MDQ0OTg4Mn0.QfH9CpW5L--DqLLXyP7sIBCOZLSUEOv9HvUgHGGNj5o"
+        supabase_url = "https://equrcpeifogdrxoldkpe.supabase.co"
+        supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ"
         
         supabase: Client = create_client(supabase_url, supabase_key)
         
@@ -70,8 +70,8 @@ def apply_sql_file(filename):
 def check_table_exists(table_name):
     """テーブルの存在確認"""
     try:
-        supabase_url = "https://mgswnwrkufayotlqqjxf.supabase.co"
-        supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nc3dud3JrdWZheW90bHFxanhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ4NzM4ODIsImV4cCI6MjA1MDQ0OTg4Mn0.QfH9CpW5L--DqLLXyP7sIBCOZLSUEOv9HvUgHGGNj5o"
+        supabase_url = "https://equrcpeifogdrxoldkpe.supabase.co"
+        supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ"
         
         supabase: Client = create_client(supabase_url, supabase_key)
         
