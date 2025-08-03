@@ -19,9 +19,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の設定（Cloud Runの環境変数を優先）
-# 正しいSupabaseプロジェクトを使用
-os.environ.setdefault('SUPABASE_URL', 'https://mgswnwrkufayotlqqjxf.supabase.co')
-# SUPABASE_KEYはCloud Runの環境変数から取得
+# 正しいSupabaseプロジェクト: rakuten-sales-data
+os.environ.setdefault('SUPABASE_URL', 'https://equrcpeifogdrxoldkpe.supabase.co')
+os.environ.setdefault('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ')
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
