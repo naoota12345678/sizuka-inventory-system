@@ -54,14 +54,16 @@ class InventoryMappingSystem:
                         "source": "楽天選択肢"
                     })
             else:
-                # 通常商品の場合
+                # 通常商品の場合：楽天SKU（rakuten_item_number）で処理
+                rakuten_sku = order.get('rakuten_item_number', '') or order.get('product_code', '')
                 rakuten_sales.append({
                     "type": "normal_item", 
-                    "rakuten_code": order['product_code'],
+                    "rakuten_code": rakuten_sku,
                     "quantity": order['quantity'],
                     "order_item_id": order['id'],
                     "product_name": order['product_name'],
-                    "source": "楽天通常商品"
+                    "source": "楽天通常商品",
+                    "fallback_product_code": order['product_code']  # フォールバック用
                 })
         
         logger.info(f"楽天商品在庫変動データ: {len(rakuten_sales)}件")
@@ -90,7 +92,8 @@ class InventoryMappingSystem:
                     unmapped_items.append(item)
             else:
                 # 通常商品のマッピング（楽天SKUベース）
-                mapping = self._find_normal_product_mapping(item["rakuten_code"])
+                fallback_code = item.get("fallback_product_code")
+                mapping = self._find_normal_product_mapping(item["rakuten_code"], fallback_code)
                 if mapping:
                     mapped_items.append({
                         "common_code": mapping["common_code"],
@@ -226,19 +229,27 @@ class InventoryMappingSystem:
         except:
             return None
     
-    def _find_normal_product_mapping(self, product_code):
-        """通常商品のマッピング検索（楽天SKUベース）"""
-        # product_masterテーブルから検索（rakuten_skuで）
+    def _find_normal_product_mapping(self, rakuten_sku, fallback_product_code=None):
+        """通常商品のマッピング検索（楽天SKUベース、フォールバック対応）"""
+        # 1. まず楽天SKU（rakuten_item_number）で検索
         try:
-            result = self.supabase.table("product_master").select("*").eq("rakuten_sku", product_code).execute()
-            if result.data:
-                logger.debug(f"Found mapping for {product_code}: {result.data[0]['common_code']}")
-                return result.data[0]
-            else:
-                logger.debug(f"No mapping found for rakuten_sku: {product_code}")
-                return None
+            if rakuten_sku:
+                result = self.supabase.table("product_master").select("*").eq("rakuten_sku", rakuten_sku).execute()
+                if result.data:
+                    logger.debug(f"Found mapping for rakuten_sku {rakuten_sku}: {result.data[0]['common_code']}")
+                    return result.data[0]
+            
+            # 2. フォールバック：product_codeで検索
+            if fallback_product_code and fallback_product_code != rakuten_sku:
+                result = self.supabase.table("product_master").select("*").eq("rakuten_sku", fallback_product_code).execute()
+                if result.data:
+                    logger.debug(f"Found mapping for fallback_code {fallback_product_code}: {result.data[0]['common_code']}")
+                    return result.data[0]
+            
+            logger.debug(f"No mapping found for rakuten_sku: {rakuten_sku} or fallback: {fallback_product_code}")
+            return None
         except Exception as e:
-            logger.error(f"Error finding mapping for {product_code}: {str(e)}")
+            logger.error(f"Error finding mapping for {rakuten_sku}: {str(e)}")
             return None
     
     def _get_bundle_components(self, bundle_code):
