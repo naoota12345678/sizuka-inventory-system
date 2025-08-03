@@ -322,9 +322,36 @@ class RakutenAPI:
         # ショップ情報
         shop_item_code = item.get("shopItemCode", "")
         
-        # 選択肢コードを商品名から抽出
-        from core.utils import extract_choice_code_from_name
-        choice_code = extract_choice_code_from_name(item_name)
+        # 楽天APIのselectedChoiceフィールドから選択肢コードを正確に抽出
+        choice_code = ""
+        selected_choices = []
+        
+        # selectedChoiceフィールドから直接選択肢コードを取得
+        if "selectedChoice" in item and item["selectedChoice"]:
+            selected_choice_data = item["selectedChoice"]
+            if isinstance(selected_choice_data, list):
+                # リスト形式の場合
+                for choice in selected_choice_data:
+                    if isinstance(choice, dict):
+                        choice_name = choice.get("choiceName", "")
+                        choice_value = choice.get("choiceValue", "")
+                        if choice_name and choice_value:
+                            selected_choices.append(f"{choice_name}:{choice_value}")
+                choice_code = ",".join(selected_choices)
+            elif isinstance(selected_choice_data, dict):
+                # 辞書形式の場合
+                choice_name = selected_choice_data.get("choiceName", "")
+                choice_value = selected_choice_data.get("choiceValue", "")
+                if choice_name and choice_value:
+                    choice_code = f"{choice_name}:{choice_value}"
+            elif isinstance(selected_choice_data, str):
+                # 文字列形式の場合
+                choice_code = selected_choice_data
+        
+        # selectedChoiceが空の場合、商品名から抽出を試行（フォールバック）
+        if not choice_code:
+            from core.utils import extract_choice_code_from_name
+            choice_code = extract_choice_code_from_name(item_name)
         
         # その他の詳細情報
         item_description = item.get("itemDescription", "")
