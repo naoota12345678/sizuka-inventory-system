@@ -157,14 +157,14 @@ class RakutenAPI:
 
                     # 注文データの保存（重複チェック付き）
                     # 既存注文をチェック
-                    existing = supabase.table("orders").select("id").eq("order_number", order_data["order_number"]).execute()
+                    existing = Database.get_client().table("orders").select("id").eq("order_number", order_data["order_number"]).execute()
                     
                     if existing.data:
                         # 既存の注文があれば更新
-                        order_result = supabase.table("orders").update(order_data).eq("order_number", order_data["order_number"]).execute()
+                        order_result = Database.get_client().table("orders").update(order_data).eq("order_number", order_data["order_number"]).execute()
                     else:
                         # 新規注文として挿入
-                        order_result = supabase.table("orders").insert(order_data).execute()
+                        order_result = Database.get_client().table("orders").insert(order_data).execute()
 
                     if not order_result.data:
                         raise Exception(f"注文の保存に失敗: {order_number}")
@@ -246,7 +246,7 @@ class RakutenAPI:
                         item_data = self._prepare_item_data(item, order_id, is_parent=False)
                         
                         # 商品データの保存
-                        item_result = supabase.table("order_items").insert(item_data).execute()
+                        item_result = Database.get_client().table("order_items").insert(item_data).execute()
                         
                         if not item_result.data:
                             raise Exception(f"商品データの保存に失敗: {item_data['product_code']}")
@@ -407,7 +407,7 @@ class RakutenAPI:
         
         # 親商品のデータを保存
         parent_data = self._prepare_item_data(parent_item, order_id, is_parent=True)
-        parent_result = supabase.table("order_items").insert(parent_data).execute()
+        parent_result = Database.get_client().table("order_items").insert(parent_data).execute()
         
         if not parent_result.data:
             raise Exception(f"親商品の保存に失敗: {parent_data['product_code']}")
@@ -444,7 +444,7 @@ class RakutenAPI:
             )
             
             # 子商品データの保存
-            child_result = supabase.table("order_items").insert(child_item_data).execute()
+            child_result = Database.get_client().table("order_items").insert(child_item_data).execute()
             
             if not child_result.data:
                 raise Exception(f"子商品の保存に失敗: {child_item_data['product_code']}")
@@ -472,7 +472,7 @@ class RakutenAPI:
         
         for attempt in range(max_retries):
             try:
-                response = supabase.table("platform").select("id").eq("platform_code", "rakuten").execute()
+                response = Database.get_client().table("platform").select("id").eq("platform_code", "rakuten").execute()
                 if response.data:
                     return response
                 raise ValueError("プラットフォーム 'rakuten' が見つかりません")
@@ -601,14 +601,14 @@ class RakutenAPI:
             }
             
             # 重複チェック
-            existing = supabase.table("product_mapping_rakuten").select("id").eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+            existing = Database.get_client().table("product_mapping_rakuten").select("id").eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
             
             if existing.data:
                 # 既存レコードを更新
-                result = supabase.table("product_mapping_rakuten").update(mapping_data).eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
+                result = Database.get_client().table("product_mapping_rakuten").update(mapping_data).eq("rakuten_product_code", management_number).eq("rakuten_choice_code", choice_code or "").execute()
             else:
                 # 新規レコードを挿入
-                result = supabase.table("product_mapping_rakuten").insert(mapping_data).execute()
+                result = Database.get_client().table("product_mapping_rakuten").insert(mapping_data).execute()
             
             if result.data:
                 logger.info(f"SKUマッピング保存成功: {management_number} -> {rakuten_sku} -> {common_product_code}")
