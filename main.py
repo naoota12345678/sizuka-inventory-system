@@ -84,6 +84,48 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"起動時の軽微なエラー: {str(e)}")
 
+@app.get("/debug_supabase_connection")
+async def debug_supabase_connection():
+    """現在のSupabase接続先を確認"""
+    try:
+        from core.database import Database
+        
+        # 環境変数の確認
+        current_url = os.environ.get('SUPABASE_URL', 'Not set')
+        current_key_length = len(os.environ.get('SUPABASE_KEY', '')) if os.environ.get('SUPABASE_KEY') else 0
+        
+        # Supabaseクライアントの確認
+        client = Database.get_client()
+        client_url = getattr(client, 'supabase_url', 'Unknown') if client else 'No client'
+        
+        # 実際にクエリを実行してプロジェクトを確認
+        test_result = None
+        if client:
+            try:
+                test_query = client.table('platform').select('*').limit(1).execute()
+                test_result = test_query.data[0] if test_query.data else "No data"
+            except Exception as e:
+                test_result = f"Query error: {str(e)}"
+        
+        return {
+            "status": "success",
+            "environment_vars": {
+                "SUPABASE_URL": current_url,
+                "SUPABASE_KEY_LENGTH": current_key_length
+            },
+            "client_info": {
+                "client_url": client_url,
+                "client_exists": client is not None
+            },
+            "test_query": test_result,
+            "expected_url": "https://equrcpeifogdrxoldkpe.supabase.co"
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
 @app.get("/")
 async def root():
     """メイン画面"""
@@ -97,6 +139,7 @@ async def root():
             "platform_sync": "/api/platform_sync",
             "rakuten_analysis": "/api/analyze_sold_products",
             "comprehensive_analysis": "/api/comprehensive_rakuten_analysis",
+            "debug": "/debug_supabase_connection",
             "sku_structure_analysis": "/api/analyze_rakuten_sku_structure",
             "family_detail": "/api/product_family_detail",
             "product_variations": "/api/get_rakuten_product_variations",
