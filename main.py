@@ -367,6 +367,61 @@ async def get_sales_data_complete(
             "message": str(e)
         }
 
+@app.get("/api/debug_connection")
+async def debug_connection():
+    """現在のSupabase接続状況をデバッグ"""
+    try:
+        import os
+        from core.database import supabase
+        
+        # 環境変数の確認
+        current_url = os.environ.get('SUPABASE_URL', 'Not set')
+        current_key = os.environ.get('SUPABASE_KEY', 'Not set')
+        
+        # Supabaseクライアントの確認
+        supabase_client_url = getattr(supabase, 'supabase_url', 'Unknown') if supabase else 'No client'
+        
+        # 実際にクエリを実行してプロジェクトを確認
+        test_result = None
+        if supabase:
+            try:
+                # platformテーブルからデータを取得
+                test_query = supabase.table('platform').select('*').limit(1).execute()
+                test_result = {
+                    "query_success": True,
+                    "data_count": len(test_query.data) if test_query.data else 0,
+                    "sample_data": test_query.data[0] if test_query.data else None
+                }
+            except Exception as query_error:
+                test_result = {
+                    "query_success": False,
+                    "error": str(query_error)
+                }
+        
+        return {
+            "status": "debug_info",
+            "environment_variables": {
+                "SUPABASE_URL": current_url,
+                "SUPABASE_KEY_length": len(current_key) if current_key != 'Not set' else 0
+            },
+            "supabase_client": {
+                "client_exists": supabase is not None,
+                "client_url": supabase_client_url
+            },
+            "connection_test": test_result,
+            "expected_new_project": {
+                "url": "https://equrcpeifogdrxoldkpe.supabase.co",
+                "project_name": "rakuten-sales-data"
+            },
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return {
+            "status": "debug_error",
+            "message": str(e)
+        }
+
 # ===== 在庫管理API =====
 @app.get("/api/inventory_list")
 async def get_inventory_list(
