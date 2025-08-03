@@ -11,8 +11,8 @@ def check_order_items_structure():
     """order_itemsテーブルの構造を確認"""
     try:
         # 環境変数の確認
-        supabase_url = os.getenv("SUPABASE_URL") or "https://mgswnwrkufayotlqqjxf.supabase.co"
-        supabase_key = os.getenv("SUPABASE_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1nc3dud3JrdWZheW90bHFxanhmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ4NzM4ODIsImV4cCI6MjA1MDQ0OTg4Mn0.QfH9CpW5L--DqLLXyP7sIBCOZLSUEOv9HvUgHGGNj5o"
+        supabase_url = os.getenv("SUPABASE_URL") or "https://equrcpeifogdrxoldkpe.supabase.co"
+        supabase_key = os.getenv("SUPABASE_KEY") or "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ"
         
         if not supabase_url or not supabase_key:
             print("ERROR: SUPABASE_URLまたはSUPABASE_KEYが設定されていません")
