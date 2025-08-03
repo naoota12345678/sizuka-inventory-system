@@ -427,6 +427,35 @@ async def debug_connection():
             "message": str(e)
         }
 
+@app.get("/api/check_environment")
+async def check_environment():
+    """Cloud Runの実際の環境変数を確認"""
+    import os
+    
+    # 重要な環境変数をチェック
+    env_vars = {
+        "SUPABASE_URL": os.environ.get('SUPABASE_URL', 'NOT_SET'),
+        "SUPABASE_KEY_length": len(os.environ.get('SUPABASE_KEY', '')),
+        "RAKUTEN_SERVICE_SECRET_length": len(os.environ.get('RAKUTEN_SERVICE_SECRET', '')),
+        "RAKUTEN_LICENSE_KEY_length": len(os.environ.get('RAKUTEN_LICENSE_KEY', '')),
+    }
+    
+    # Supabaseクライアントの実際のURL
+    supabase_client_url = None
+    if supabase:
+        # Supabaseクライアントの内部情報を取得
+        try:
+            supabase_client_url = supabase.supabase_url
+        except:
+            supabase_client_url = "Unknown"
+    
+    return {
+        "cloud_run_environment": env_vars,
+        "supabase_client_url": supabase_client_url,
+        "expected_url": "https://equrcpeifogdrxoldkpe.supabase.co",
+        "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+    }
+
 # ===== 在庫管理API =====
 @app.get("/api/inventory_list")
 async def get_inventory_list(
