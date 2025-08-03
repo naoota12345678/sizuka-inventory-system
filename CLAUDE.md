@@ -190,3 +190,63 @@ https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczu
 2. Dockerfile確認
 3. ログ確認
 4. 環境変数確認（最後）
+
+## 製造在庫同期システム（2025-08-03完成）
+
+### 概要
+スマレジIDで管理される製造商品の在庫をSupabaseに自動同期するシステム。
+エアレジからSupabaseへの切り替えを実現。
+
+### システムの流れ
+1. **Google Sheets（製造データ）**: スマレジID（10XXX形式）で製造在庫数を管理
+2. **商品番号マッピング基本表**: スマレジID → 共通コードの変換テーブル
+3. **Supabase inventory**: 共通コードで統一在庫管理
+
+### 実装ファイル
+- `supabase_inventory_sync_fixed.py` - メインの同期システム
+- `sync_smaregi_mapping.py` - マッピングテーブル同期（122件のスマレジ商品登録済み）
+- `check_product_mapping.py` - マッピング状況確認ツール
+
+### 成功実績（2025-08-03テスト）
+```
+総商品数: 8商品
+成功率: 100%（8/8）
+新規作成: 8商品
+失敗: 0商品
+
+マッピング例:
+10003 → CM016: 100個
+10023 → CM025: 70個  
+10107 → PC001: 5個
+10076 → CM039: 30個
+10016 → CM019: 50個
+10105 → CM122: 26個
+10010 → CM076: 1個
+10066 → CM066: 3個
+```
+
+### データベース設計
+- **inventory**: 在庫数量管理（common_code, current_stock, minimum_stock等）
+- **product_master**: 楽天SKU⇔共通コードマッピング（製造商品はrakuten_skuにスマレジIDを格納）
+- **choice_code_mapping**: 選択肢コード⇔共通コードマッピング（147件登録済み）
+
+### Google Sheets連携
+- **製造データ**: `1YFFgRm2uYQ16eNx2-ILuM-_4dTD09OP2gtWbeu5EeAQ` AIRレジシート
+- **マッピング基本表**: `1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczuS3E` (gid=1290908701)
+
+### 重要な技術仕様
+1. **マッピングキャッシュ**: 商品番号マッピング基本表を1回読み込み、メモリでキャッシュ
+2. **エラーハンドリング**: 文字化けや空データに対応
+3. **在庫更新**: 既存在庫への加算 vs 新規在庫レコード作成
+4. **ログ記録**: 詳細な処理ログでトレーサビリティ確保
+
+### 運用方法
+```bash
+cd "C:\Users\naoot\Desktop\sizukaproject\sizukagoogleun"
+python supabase_inventory_sync_fixed.py
+```
+
+### 今後の拡張
+- 毎日自動実行スケジューラー
+- 差分同期（増分のみ）
+- エラー通知機能
