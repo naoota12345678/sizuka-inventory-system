@@ -20,8 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # 環境変数の設定（Cloud Runの環境変数を優先）
 # 正しいSupabaseプロジェクト: rakuten-sales-data
-os.environ.setdefault('SUPABASE_URL', 'https://equrcpeifogdrxoldkpe.supabase.co')
-os.environ.setdefault('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ')
+os.environ['SUPABASE_URL'] = 'https://equrcpeifogdrxoldkpe.supabase.co'
+os.environ['SUPABASE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ'
 
 # ログ設定
 logging.basicConfig(level=logging.INFO)
@@ -46,11 +46,16 @@ app.add_middleware(
 # Supabase接続
 from supabase import create_client, Client
 
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+# 新しいSupabaseプロジェクト設定を強制適用
+SUPABASE_URL = os.environ['SUPABASE_URL']
+SUPABASE_KEY = os.environ['SUPABASE_KEY']
+
+logger.info(f"Supabase接続先: {SUPABASE_URL}")
+logger.info(f"Supabaseキー長: {len(SUPABASE_KEY) if SUPABASE_KEY else 0}")
 
 if SUPABASE_URL and SUPABASE_KEY:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    logger.info("新しいSupabaseクライアントを作成しました")
 else:
     supabase = None
     logger.error("Supabase接続情報が設定されていません")
