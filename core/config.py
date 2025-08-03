@@ -19,9 +19,23 @@ logger = logging.getLogger(__name__)
 class Config:
     """アプリケーション設定"""
     
-    # Supabase設定
-    SUPABASE_URL = os.getenv('SUPABASE_URL')
-    SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+    # Supabase設定（動的に環境変数を取得）
+    @classmethod
+    def get_supabase_url(cls):
+        return os.getenv('SUPABASE_URL')
+    
+    @classmethod
+    def get_supabase_key(cls):
+        return os.getenv('SUPABASE_KEY')
+    
+    # 後方互換性のためのプロパティ
+    @property
+    def SUPABASE_URL(self):
+        return os.getenv('SUPABASE_URL')
+    
+    @property
+    def SUPABASE_KEY(self):
+        return os.getenv('SUPABASE_KEY')
     
     # 楽天API設定
     RAKUTEN_SERVICE_SECRET = os.getenv('RAKUTEN_SERVICE_SECRET')

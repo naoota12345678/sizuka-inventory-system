@@ -18,7 +18,7 @@ import pytz
 from fastapi import HTTPException
 
 from core.config import Config
-from core.database import supabase
+from core.database import Database
 from core.utils import extract_product_code_prefix, extract_sku_data, extract_selected_choices
 
 logger = logging.getLogger(__name__)
@@ -127,6 +127,7 @@ class RakutenAPI:
         MAX_RETRIES = 3
         RETRY_DELAY = 1
         
+        supabase = Database.get_client()
         if not supabase:
             raise ValueError("Supabaseクライアントが初期化されていません")
         
@@ -465,6 +466,7 @@ class RakutenAPI:
 
     def _get_platform_id_with_retry(self, max_retries=3, delay=1):
         """Platform IDの取得（リトライ機能付き）"""
+        supabase = Database.get_client()
         if not supabase:
             raise ValueError("Supabaseクライアントが初期化されていません")
         

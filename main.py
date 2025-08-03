@@ -23,6 +23,10 @@ from fastapi.middleware.cors import CORSMiddleware
 os.environ['SUPABASE_URL'] = 'https://equrcpeifogdrxoldkpe.supabase.co'
 os.environ['SUPABASE_KEY'] = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ'
 
+# core.databaseの既存クライアントをリセット（環境変数変更を反映）
+from core.database import Database
+Database.reset_client()
+
 # ログ設定
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
