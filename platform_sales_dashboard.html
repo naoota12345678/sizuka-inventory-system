@@ -295,8 +295,8 @@
         
         // 初期化
         document.addEventListener('DOMContentLoaded', () => {
-            // デフォルト期間設定（過去30日）
-            setQuickPeriod(30);
+            // デフォルト期間設定（8月以降のデータ豊富な期間）
+            setDataRichPeriod();
             updateDashboard();
         });
         
@@ -499,6 +499,15 @@
             const now = new Date();
             const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
             const endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+            
+            document.getElementById('startDate').value = formatDate(startDate);
+            document.getElementById('endDate').value = formatDate(endDate);
+        }
+        
+        // データ豊富な期間設定（8月1日から今日まで）
+        function setDataRichPeriod() {
+            const endDate = new Date();
+            const startDate = new Date('2025-08-01'); // データが豊富な8月から開始
             
             document.getElementById('startDate').value = formatDate(startDate);
             document.getElementById('endDate').value = formatDate(endDate);
