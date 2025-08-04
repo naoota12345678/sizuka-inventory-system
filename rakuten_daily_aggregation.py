@@ -24,7 +24,7 @@ class RakutenDailyAggregator:
         self.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         
     def aggregate_daily_sales(self, start_date: str = None, end_date: str = None):
-        """指定期間の日次売上を集計（異常データ除外）"""
+        """指定期間の日次売上を集計（order_dateベース）"""
         
         # デフォルト期間設定（過去30日）
         if not end_date:
@@ -34,51 +34,29 @@ class RakutenDailyAggregator:
             
         logger.info(f"集計期間: {start_date} ~ {end_date}")
         
-        # 異常データの日付を除外（テストデータ対策）
-        EXCLUDED_DATES = ['2025-08-03']  # 機械的投入データ
-        
-        # 期間内の注文データを取得
+        # 期間内の注文データを取得（実際の注文日order_dateベース）
         try:
-            # ordersテーブルから日別集計を取得
-            # 注意: lte()ではなくlt()を使用（タイムスタンプ対応）
+            # ordersテーブルから実際の注文日で集計
             from datetime import datetime, timedelta
             end_date_plus_one = (datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
             
             orders_response = self.supabase.table("orders").select(
-                "created_at, total_amount"
-            ).gte("created_at", start_date).lt("created_at", end_date_plus_one).execute()
+                "order_date, total_amount"
+            ).gte("order_date", start_date).lt("order_date", end_date_plus_one).execute()
             
             orders = orders_response.data if orders_response.data else []
-            
-            # 異常データを除外
-            filtered_orders = []
-            excluded_count = 0
-            
-            for order in orders:
-                created_at = order.get('created_at', '')
-                if 'T' in created_at:
-                    date = created_at.split('T')[0]
-                else:
-                    date = created_at[:10]
-                
-                if date not in EXCLUDED_DATES:
-                    filtered_orders.append(order)
-                else:
-                    excluded_count += 1
-            
-            orders = filtered_orders
-            logger.info(f"対象注文数: {len(orders) + excluded_count}件 → フィルタ後: {len(orders)}件 (除外: {excluded_count}件)")
+            logger.info(f"対象注文数: {len(orders)}件 (order_dateベース)")
             
             # 日別に集計
             daily_totals = {}
             
             for order in orders:
-                # 日付を抽出（YYYY-MM-DD形式）
-                created_at = order.get('created_at', '')
-                if 'T' in created_at:
-                    sales_date = created_at.split('T')[0]
+                # 実際の注文日を抽出（YYYY-MM-DD形式）
+                order_date = order.get('order_date', '')
+                if 'T' in order_date:
+                    sales_date = order_date.split('T')[0]
                 else:
-                    sales_date = created_at[:10]
+                    sales_date = order_date[:10]
                 
                 total_amount = float(order.get('total_amount', 0))
                 
