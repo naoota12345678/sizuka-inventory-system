@@ -44,6 +44,7 @@ app.add_middleware(
 
 # Supabase接続
 from supabase import create_client, Client
+from platform_sales_api import get_platform_sales_summary
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
@@ -2132,13 +2133,13 @@ async def debug_rakuten_sync(start_date: str = "2025-08-01", end_date: str = "20
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
 
-# ===== 売上分析API =====
-@app.get("/api/sales/products")
-async def get_product_sales(
+# ===== 修正版売上分析API（2つのアプローチ） =====
+@app.get("/api/sales/basic")
+async def get_basic_sales_summary(
     start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
 ):
-    """商品別売上一覧を取得"""
+    """A) 基本売上集計 - 共通コード単位（在庫管理と同じ仕組み）"""
     try:
         # デフォルト期間設定
         if not end_date:
@@ -2146,57 +2147,237 @@ async def get_product_sales(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
-        # 注文データ取得（ordersテーブルとJOINして正しい注文日を使用）
+        # choice_codeがある注文のみ取得（選択肢詳細分析と同じ条件）
+        query = supabase.table('order_items').select('*, orders!inner(created_at)').gte('orders.created_at', start_date).lte('orders.created_at', end_date).not_.is_('choice_code', 'null').neq('choice_code', '')
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # 共通コード別売上集計
+        from collections import defaultdict
+        import re
+        
+        common_code_sales = defaultdict(lambda: {
+            'common_code': '',
+            'product_name': '',
+            'quantity': 0,
+            'total_amount': 0,
+            'orders_count': 0
+        })
+        
+        mapped_items = 0
+        unmapped_items = 0
+        
+        for item in items:
+            choice_code = item.get('choice_code', '')
+            quantity = item.get('quantity', 0)
+            price = item.get('price', 0)
+            sales_amount = price * quantity
+            
+            mapped_any = False
+            
+            if choice_code:
+                # choice_codeから商品コード（R05, R13等）を抽出
+                extracted_codes = re.findall(r'R\d{2,}', choice_code)
+                
+                for code in extracted_codes:
+                    # choice_code_mappingテーブルでJSONB検索
+                    try:
+                        mapping_response = supabase.table("choice_code_mapping").select("common_code, product_name").contains("choice_info", {"choice_code": code}).execute()
+                        
+                        if mapping_response.data:
+                            common_code = mapping_response.data[0].get('common_code')
+                            product_name = mapping_response.data[0].get('product_name', '')
+                            
+                            # 共通コード単位で集計
+                            if common_code:
+                                common_code_sales[common_code]['common_code'] = common_code
+                                common_code_sales[common_code]['product_name'] = product_name
+                                common_code_sales[common_code]['quantity'] += quantity
+                                common_code_sales[common_code]['total_amount'] += sales_amount
+                                common_code_sales[common_code]['orders_count'] += 1
+                                mapped_any = True
+                    except Exception as e:
+                        logger.error(f"Error mapping choice code {code}: {str(e)}")
+                        continue
+            
+            if mapped_any:
+                mapped_items += 1
+            else:
+                unmapped_items += 1
+        
+        # 結果をリスト化（売上順）
+        sales_list = list(common_code_sales.values())
+        sales_list.sort(key=lambda x: x['total_amount'], reverse=True)
+        
+        # 統計計算
+        success_rate = (mapped_items / (mapped_items + unmapped_items) * 100) if (mapped_items + unmapped_items) > 0 else 0
+        total_sales = sum(item['total_amount'] for item in sales_list)
+        total_quantity = sum(item['quantity'] for item in sales_list)
+        
+        return {
+            'status': 'success',
+            'type': 'basic_sales_summary',
+            'period': {'start_date': start_date, 'end_date': end_date},
+            'summary': {
+                'total_sales': total_sales,
+                'total_quantity': total_quantity,
+                'unique_products': len(sales_list),
+                'mapping_success_rate': success_rate
+            },
+            'products': sales_list
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_basic_sales_summary: {str(e)}")
+        return {'status': 'error', 'message': str(e)}
+
+@app.get("/api/sales/choices")
+async def get_choice_detail_analysis(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
+):
+    """B) 選択肢詳細分析 - choice_code単位の人気分析"""
+    try:
+        # デフォルト期間設定
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # choice_codeがある注文のみ取得
+        query = supabase.table('order_items').select('*, orders!inner(created_at)').gte('orders.created_at', start_date).lte('orders.created_at', end_date).not_.is_('choice_code', 'null').neq('choice_code', '')
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # choice_code別集計
+        from collections import defaultdict
+        import re
+        
+        choice_sales = defaultdict(lambda: {
+            'choice_code': '',
+            'common_code': '',
+            'product_name': '',
+            'quantity': 0,
+            'total_amount': 0,
+            'orders_count': 0
+        })
+        
+        for item in items:
+            choice_code = item.get('choice_code', '')
+            quantity = item.get('quantity', 0)
+            price = item.get('price', 0)
+            
+            # choice_codeから商品コード（R05, R13等）を抽出
+            extracted_codes = re.findall(r'R\d{2,}', choice_code)
+            
+            for code in extracted_codes:
+                # choice_code_mappingテーブルでJSONB検索
+                try:
+                    mapping_response = supabase.table("choice_code_mapping").select("common_code, product_name").contains("choice_info", {"choice_code": code}).execute()
+                    
+                    if mapping_response.data:
+                        common_code = mapping_response.data[0].get('common_code', code)
+                        product_name = mapping_response.data[0].get('product_name', code)
+                    else:
+                        common_code = code
+                        product_name = f'未登録商品 ({code})'
+                except Exception as e:
+                    logger.error(f"Error mapping choice code {code}: {str(e)}")
+                    common_code = code
+                    product_name = f'未登録商品 ({code})'
+                
+                # choice_code別に集計
+                choice_sales[code]['choice_code'] = code
+                choice_sales[code]['common_code'] = common_code
+                choice_sales[code]['product_name'] = product_name
+                choice_sales[code]['quantity'] += quantity
+                choice_sales[code]['total_amount'] += price * quantity
+                choice_sales[code]['orders_count'] += 1
+        
+        # 人気順でソート
+        choice_list = list(choice_sales.values())
+        choice_list.sort(key=lambda x: x['quantity'], reverse=True)
+        
+        total_choice_sales = sum(item['total_amount'] for item in choice_list)
+        total_choice_quantity = sum(item['quantity'] for item in choice_list)
+        
+        return {
+            'status': 'success',
+            'type': 'choice_detail_analysis',
+            'period': {'start_date': start_date, 'end_date': end_date},
+            'summary': {
+                'total_sales': total_choice_sales,
+                'total_quantity': total_choice_quantity,
+                'unique_choices': len(choice_list)
+            },
+            'choices': choice_list
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_choice_detail_analysis: {str(e)}")
+        return {'status': 'error', 'message': str(e)}
+
+@app.get("/api/sales/products")
+async def get_product_sales(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
+):
+    """商品別売上一覧を取得 - 従来版（互換性のため残す）"""
+    try:
+        # デフォルト期間設定
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # order_itemsから商品データを取得（created_atを使用）
         query = supabase.table("order_items").select(
             "*",
-            "orders!inner(order_date)"
+            "orders!inner(created_at)"
         )
-        query = query.gte("orders.order_date", start_date)
-        query = query.lte("orders.order_date", end_date)
+        query = query.gte("orders.created_at", start_date)
+        query = query.lte("orders.created_at", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
         
-        # 商品別集計
+        # 商品別集計（マッピング済みデータを使用）
         product_sales = {}
         
         for item in items:
-            key = item.get('product_code', 'unknown')
+            product_code = item.get('product_code', 'unknown')
             
-            if key not in product_sales:
-                product_sales[key] = {
-                    'product_name': item.get('product_name', '不明'),
+            if product_code not in product_sales:
+                # product_masterからマッピング情報を取得
+                if product_code != 'unknown':
+                    master_response = supabase.table("product_master").select("common_code, product_name").eq("rakuten_sku", product_code).limit(1).execute()
+                    if master_response.data:
+                        common_code = master_response.data[0].get('common_code', f'UNMAPPED_{product_code}')
+                        mapped_name = master_response.data[0].get('product_name', item.get('product_name', '不明'))
+                    else:
+                        common_code = f'UNMAPPED_{product_code}'
+                        mapped_name = item.get('product_name', '不明')
+                else:
+                    common_code = 'UNKNOWN'
+                    mapped_name = item.get('product_name', '不明')
+                
+                product_sales[product_code] = {
+                    'product_code': product_code,
+                    'product_name': mapped_name,
+                    'common_code': common_code,
                     'quantity': 0,
                     'total_amount': 0,
                     'orders_count': 0,
                     'rakuten_sku': item.get('rakuten_item_number', ''),
-                    'common_code': ''
                 }
-                
-                # 共通コード取得（複数パターンで検索）
-                try:
-                    # 1. product_codeで検索
-                    master_response = supabase.table("product_master").select("common_code").eq("rakuten_sku", key).limit(1).execute()
-                    if master_response.data:
-                        product_sales[key]['common_code'] = master_response.data[0].get('common_code', '')
-                    else:
-                        # 2. rakuten_item_numberで検索
-                        rakuten_sku = item.get('rakuten_item_number', '')
-                        if rakuten_sku:
-                            master_response = supabase.table("product_master").select("common_code").eq("rakuten_sku", rakuten_sku).limit(1).execute()
-                            if master_response.data:
-                                product_sales[key]['common_code'] = master_response.data[0].get('common_code', '')
-                                product_sales[key]['rakuten_sku'] = rakuten_sku
-                except:
-                    pass
             
             # 数量・金額集計
             quantity = item.get('quantity', 0)
             price = item.get('price', 0)
             
-            product_sales[key]['quantity'] += quantity
-            product_sales[key]['total_amount'] += price * quantity
-            product_sales[key]['orders_count'] += 1
+            product_sales[product_code]['quantity'] += quantity
+            product_sales[product_code]['total_amount'] += price * quantity
+            product_sales[product_code]['orders_count'] += 1
         
         # リスト形式に変換（売上高順）
         sales_list = []
@@ -2248,7 +2429,7 @@ async def get_sales_summary(
     end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)"),
     group_by: str = Query("day", description="集計単位 (day/week/month)")
 ):
-    """期間別売上サマリー"""
+    """期間別売上サマリー - マッピング済みデータから直接集計"""
     try:
         # デフォルト期間設定
         if not end_date:
@@ -2256,24 +2437,27 @@ async def get_sales_summary(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
-        # 注文データ取得（ordersテーブルとJOINして正しい注文日を使用）
+        # order_itemsから直接集計（product_masterでマッピング情報を取得）
         query = supabase.table("order_items").select(
-            "quantity, price",
-            "orders!inner(order_date)"
+            "quantity, price, product_code, product_name, created_at",
+            "orders!inner(order_date, created_at)"
         )
-        query = query.gte("orders.order_date", start_date)
-        query = query.lte("orders.order_date", end_date)
+        query = query.gte("orders.created_at", start_date)
+        query = query.lte("orders.created_at", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
         
         # 期間別集計
         period_sales = {}
+        total_sales = 0
+        total_quantity = 0
+        total_orders = set()
         
         for item in items:
-            # JOINしたordersテーブルからorder_dateを取得
+            # JOINしたordersテーブルからcreated_atを取得
             order_data = item.get('orders', {})
-            order_date = order_data.get('order_date', '')
+            order_date = order_data.get('created_at', '')
             if not order_date:
                 continue
                 
@@ -2339,6 +2523,31 @@ async def get_sales_summary(
             'status': 'error',
             'message': str(e)
         }
+
+# ===== 新規: プラットフォーム別売上集計API =====
+@app.get("/api/sales/platform_summary")
+async def platform_sales_summary(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
+):
+    """
+    プラットフォーム別売上集計を取得
+    
+    Parameters:
+    - start_date: 開始日（省略時は30日前）
+    - end_date: 終了日（省略時は今日）
+    
+    Returns:
+    - 期間内の取引先別売上集計
+    """
+    return await get_platform_sales_summary(start_date, end_date)
+
+@app.get("/platform-sales", response_class=HTMLResponse)
+async def platform_sales_dashboard(request: Request):
+    """プラットフォーム別売上ダッシュボードUI"""
+    with open("platform_sales_dashboard.html", "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
 
 @app.get("/sales-dashboard", response_class=HTMLResponse)
 async def sales_dashboard(request: Request):

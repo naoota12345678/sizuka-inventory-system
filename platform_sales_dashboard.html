@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>取引先別売上ダッシュボード</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        
+        /* 期間選択セクション */
+        .period-selector {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .period-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .date-input {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        input[type="date"] {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            padding: 8px 20px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #2980b9;
+        }
+        
+        .quick-select {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .quick-button {
+            padding: 6px 12px;
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            border: 1px solid #bdc3c7;
+            font-size: 12px;
+        }
+        
+        .quick-button:hover {
+            background-color: #bdc3c7;
+        }
+        
+        /* サマリーカード */
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .summary-card {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .summary-card h3 {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
+        
+        .summary-card .value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .summary-card.total {
+            background-color: #3498db;
+            color: white;
+        }
+        
+        .summary-card.total h3 {
+            color: rgba(255,255,255,0.9);
+        }
+        
+        .summary-card.total .value {
+            color: white;
+        }
+        
+        /* プラットフォーム別売上表 */
+        .platform-table {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .percentage {
+            color: #7f8c8d;
+            font-size: 12px;
+        }
+        
+        .amount {
+            font-weight: 600;
+        }
+        
+        /* 日別推移グラフ */
+        .daily-chart {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        #dailyChart {
+            max-height: 400px;
+        }
+        
+        /* ローディング */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+        
+        .error {
+            background-color: #e74c3c;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        /* レスポンシブ */
+        @media (max-width: 768px) {
+            .period-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .date-input {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .quick-select {
+                flex-wrap: wrap;
+            }
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>取引先別売上ダッシュボード</h1>
+        </header>
+        
+        <!-- 期間選択 -->
+        <div class="period-selector">
+            <h2>期間選択</h2>
+            <div class="period-controls">
+                <div class="date-input">
+                    <label>開始日:</label>
+                    <input type="date" id="startDate">
+                </div>
+                <div class="date-input">
+                    <label>終了日:</label>
+                    <input type="date" id="endDate">
+                </div>
+                <button onclick="updateDashboard()">更新</button>
+                
+                <div class="quick-select">
+                    <button class="quick-button" onclick="setQuickPeriod(7)">過去7日</button>
+                    <button class="quick-button" onclick="setQuickPeriod(30)">過去30日</button>
+                    <button class="quick-button" onclick="setQuickPeriod(90)">過去90日</button>
+                    <button class="quick-button" onclick="setThisMonth()">今月</button>
+                    <button class="quick-button" onclick="setLastMonth()">先月</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- サマリーカード -->
+        <div class="summary-cards" id="summaryCards">
+            <div class="loading">データを読み込み中...</div>
+        </div>
+        
+        <!-- プラットフォーム別売上表 -->
+        <div class="platform-table">
+            <h2>取引先別売上内訳</h2>
+            <table id="platformTable">
+                <thead>
+                    <tr>
+                        <th>取引先</th>
+                        <th>売上金額</th>
+                        <th>構成比</th>
+                        <th>注文件数</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td colspan="4" class="loading">データを読み込み中...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- 日別推移グラフ -->
+        <div class="daily-chart">
+            <h2>日別売上推移</h2>
+            <canvas id="dailyChart"></canvas>
+        </div>
+    </div>
+    
+    <script>
+        // API URL設定
+        const API_BASE = window.location.origin;
+        const API_ENDPOINT = '/api/sales/platform_summary';
+        
+        // チャートインスタンス
+        let dailyChart = null;
+        
+        // 初期化
+        document.addEventListener('DOMContentLoaded', () => {
+            // デフォルト期間設定（過去30日）
+            setQuickPeriod(30);
+            updateDashboard();
+        });
+        
+        // ダッシュボード更新
+        async function updateDashboard() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            
+            if (!startDate || !endDate) {
+                alert('期間を選択してください');
+                return;
+            }
+            
+            // ローディング表示
+            showLoading();
+            
+            try {
+                // APIリクエスト
+                const params = new URLSearchParams({
+                    start_date: startDate,
+                    end_date: endDate
+                });
+                
+                const response = await fetch(`${API_BASE}${API_ENDPOINT}?${params}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateSummaryCards(data);
+                    updatePlatformTable(data);
+                    updateDailyChart(data);
+                } else {
+                    showError('データの取得に失敗しました: ' + data.message);
+                }
+            } catch (error) {
+                showError('エラーが発生しました: ' + error.message);
+            }
+        }
+        
+        // サマリーカード更新
+        function updateSummaryCards(data) {
+            const container = document.getElementById('summaryCards');
+            container.innerHTML = '';
+            
+            // 総売上カード
+            const totalCard = createSummaryCard('総売上', formatCurrency(data.total_sales), true);
+            container.appendChild(totalCard);
+            
+            // プラットフォーム別カード
+            for (const [platform, amount] of Object.entries(data.platform_breakdown)) {
+                const card = createSummaryCard(
+                    getPlatformName(platform),
+                    formatCurrency(amount),
+                    false
+                );
+                container.appendChild(card);
+            }
+            
+            // 期間カード
+            const periodCard = createSummaryCard(
+                '集計期間',
+                `${data.metadata.total_days}日間`,
+                false
+            );
+            container.appendChild(periodCard);
+        }
+        
+        // サマリーカード作成
+        function createSummaryCard(title, value, isTotal = false) {
+            const card = document.createElement('div');
+            card.className = isTotal ? 'summary-card total' : 'summary-card';
+            card.innerHTML = `
+                <h3>${title}</h3>
+                <div class="value">${value}</div>
+            `;
+            return card;
+        }
+        
+        // プラットフォーム別テーブル更新
+        function updatePlatformTable(data) {
+            const tbody = document.querySelector('#platformTable tbody');
+            tbody.innerHTML = '';
+            
+            for (const [platform, details] of Object.entries(data.platform_details)) {
+                const percentage = (details.total_amount / data.total_sales * 100).toFixed(1);
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${getPlatformName(platform)}</td>
+                    <td class="amount">${formatCurrency(details.total_amount)}</td>
+                    <td><span class="percentage">${percentage}%</span></td>
+                    <td>${details.total_orders.toLocaleString()}件</td>
+                `;
+                tbody.appendChild(row);
+            }
+            
+            // 合計行
+            const totalRow = document.createElement('tr');
+            totalRow.style.fontWeight = 'bold';
+            totalRow.style.backgroundColor = '#f8f9fa';
+            totalRow.innerHTML = `
+                <td>合計</td>
+                <td class="amount">${formatCurrency(data.total_sales)}</td>
+                <td><span class="percentage">100.0%</span></td>
+                <td>${data.total_orders.toLocaleString()}件</td>
+            `;
+            tbody.appendChild(totalRow);
+        }
+        
+        // 日別推移グラフ更新
+        function updateDailyChart(data) {
+            const ctx = document.getElementById('dailyChart').getContext('2d');
+            
+            // 既存のチャートを破棄
+            if (dailyChart) {
+                dailyChart.destroy();
+            }
+            
+            // データ準備
+            const labels = data.daily_trends.map(d => d.date);
+            const datasets = [];
+            
+            // プラットフォーム別データセット作成
+            const platforms = Object.keys(data.platform_breakdown);
+            const colors = ['#3498db', '#e74c3c', '#f39c12', '#2ecc71', '#9b59b6'];
+            
+            platforms.forEach((platform, index) => {
+                datasets.push({
+                    label: getPlatformName(platform),
+                    data: data.daily_trends.map(d => d[platform] || 0),
+                    backgroundColor: colors[index % colors.length],
+                    borderColor: colors[index % colors.length],
+                    borderWidth: 2,
+                    fill: false,
+                    tension: 0.1
+                });
+            });
+            
+            // チャート作成
+            dailyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: false
+                        },
+                        legend: {
+                            position: 'top'
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + formatCurrency(context.parsed.y);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // クイック期間設定
+        function setQuickPeriod(days) {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - days + 1);
+            
+            document.getElementById('startDate').value = formatDate(startDate);
+            document.getElementById('endDate').value = formatDate(endDate);
+        }
+        
+        // 今月設定
+        function setThisMonth() {
+            const now = new Date();
+            const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            const endDate = new Date();
+            
+            document.getElementById('startDate').value = formatDate(startDate);
+            document.getElementById('endDate').value = formatDate(endDate);
+        }
+        
+        // 先月設定
+        function setLastMonth() {
+            const now = new Date();
+            const startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+            
+            document.getElementById('startDate').value = formatDate(startDate);
+            document.getElementById('endDate').value = formatDate(endDate);
+        }
+        
+        // 日付フォーマット
+        function formatDate(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+        
+        // 通貨フォーマット
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('ja-JP', {
+                style: 'currency',
+                currency: 'JPY'
+            }).format(amount);
+        }
+        
+        // プラットフォーム名取得
+        function getPlatformName(platform) {
+            const names = {
+                'rakuten': '楽天',
+                'amazon': 'Amazon',
+                'colorme': 'カラーミー',
+                'airegi': 'エアレジ',
+                'yahoo': 'Yahoo'
+            };
+            return names[platform] || platform;
+        }
+        
+        // ローディング表示
+        function showLoading() {
+            document.getElementById('summaryCards').innerHTML = '<div class="loading">データを読み込み中...</div>';
+            document.querySelector('#platformTable tbody').innerHTML = '<tr><td colspan="4" class="loading">データを読み込み中...</td></tr>';
+        }
+        
+        // エラー表示
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = message;
+            document.getElementById('summaryCards').innerHTML = '';
+            document.getElementById('summaryCards').appendChild(errorDiv);
+        }
+    </script>
+</body>
+</html>
