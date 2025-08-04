@@ -2170,11 +2170,20 @@ async def get_product_sales(
                     'common_code': ''
                 }
                 
-                # 共通コード取得
+                # 共通コード取得（複数パターンで検索）
                 try:
+                    # 1. product_codeで検索
                     master_response = supabase.table("product_master").select("common_code").eq("rakuten_sku", key).limit(1).execute()
                     if master_response.data:
                         product_sales[key]['common_code'] = master_response.data[0].get('common_code', '')
+                    else:
+                        # 2. rakuten_item_numberで検索
+                        rakuten_sku = item.get('rakuten_item_number', '')
+                        if rakuten_sku:
+                            master_response = supabase.table("product_master").select("common_code").eq("rakuten_sku", rakuten_sku).limit(1).execute()
+                            if master_response.data:
+                                product_sales[key]['common_code'] = master_response.data[0].get('common_code', '')
+                                product_sales[key]['rakuten_sku'] = rakuten_sku
                 except:
                     pass
             
@@ -2619,7 +2628,7 @@ async def sales_dashboard(request: Request):
             
             // 商品別売上取得
             try {
-                const response = await fetch(`/api/sales/products?start_date=${startDate}&end_date=${endDate}`);
+                const response = await fetch(`${window.location.origin}/api/sales/products?start_date=${startDate}&end_date=${endDate}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
