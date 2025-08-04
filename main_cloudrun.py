@@ -2148,8 +2148,8 @@ async def get_product_sales(
         
         # 注文データ取得
         query = supabase.table("order_items").select("*")
-        query = query.gte("order_date", start_date)
-        query = query.lte("order_date", end_date)
+        query = query.gte("created_at", start_date)
+        query = query.lte("created_at", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
@@ -2245,9 +2245,9 @@ async def get_sales_summary(
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
         # 注文データ取得
-        query = supabase.table("order_items").select("order_date, quantity, price")
-        query = query.gte("order_date", start_date)
-        query = query.lte("order_date", end_date)
+        query = supabase.table("order_items").select("created_at, quantity, price")
+        query = query.gte("created_at", start_date)
+        query = query.lte("created_at", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
@@ -2256,12 +2256,12 @@ async def get_sales_summary(
         period_sales = {}
         
         for item in items:
-            order_date = item.get('order_date', '')
-            if not order_date:
+            created_at = item.get('created_at', '')
+            if not created_at:
                 continue
                 
             # 期間キー生成
-            dt = datetime.strptime(order_date[:10], '%Y-%m-%d')
+            dt = datetime.strptime(created_at[:10], '%Y-%m-%d')
             if group_by == 'day':
                 period_key = dt.strftime('%Y-%m-%d')
             elif group_by == 'week':
