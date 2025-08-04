@@ -2641,7 +2641,7 @@ async def sales_dashboard(request: Request):
             
             // 期間別売上取得
             try {
-                const response = await fetch(`/api/sales/summary?start_date=${startDate}&end_date=${endDate}&group_by=${groupBy}`);
+                const response = await fetch(`${window.location.origin}/api/sales/summary?start_date=${startDate}&end_date=${endDate}&group_by=${groupBy}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
