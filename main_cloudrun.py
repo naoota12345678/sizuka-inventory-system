@@ -2146,10 +2146,13 @@ async def get_product_sales(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
-        # 注文データ取得
-        query = supabase.table("order_items").select("*")
-        query = query.gte("created_at", start_date)
-        query = query.lte("created_at", end_date)
+        # 注文データ取得（ordersテーブルとJOINして正しい注文日を使用）
+        query = supabase.table("order_items").select(
+            "*",
+            "orders!inner(order_date)"
+        )
+        query = query.gte("orders.order_date", start_date)
+        query = query.lte("orders.order_date", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
@@ -2253,10 +2256,13 @@ async def get_sales_summary(
         if not start_date:
             start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
         
-        # 注文データ取得
-        query = supabase.table("order_items").select("created_at, quantity, price")
-        query = query.gte("created_at", start_date)
-        query = query.lte("created_at", end_date)
+        # 注文データ取得（ordersテーブルとJOINして正しい注文日を使用）
+        query = supabase.table("order_items").select(
+            "quantity, price",
+            "orders!inner(order_date)"
+        )
+        query = query.gte("orders.order_date", start_date)
+        query = query.lte("orders.order_date", end_date)
         
         response = query.execute()
         items = response.data if response.data else []
@@ -2265,12 +2271,14 @@ async def get_sales_summary(
         period_sales = {}
         
         for item in items:
-            created_at = item.get('created_at', '')
-            if not created_at:
+            # JOINしたordersテーブルからorder_dateを取得
+            order_data = item.get('orders', {})
+            order_date = order_data.get('order_date', '')
+            if not order_date:
                 continue
                 
             # 期間キー生成
-            dt = datetime.strptime(created_at[:10], '%Y-%m-%d')
+            dt = datetime.strptime(order_date[:10], '%Y-%m-%d')
             if group_by == 'day':
                 period_key = dt.strftime('%Y-%m-%d')
             elif group_by == 'week':
