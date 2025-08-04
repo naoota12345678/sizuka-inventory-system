@@ -1,67 +1,35 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Google Sheets同期テストスクリプト
+Google Sheets同期機能のテスト
 """
 
-from api.sheets_sync import sync_product_master, SHEETS_SYNC_AVAILABLE
-import json
+import os
+from supabase import create_client
 
-def test_sheets_sync():
-    print("=== Google Sheets同期テスト ===")
-    
-    if not SHEETS_SYNC_AVAILABLE:
-        print("❌ Google Sheets同期が利用できません")
-        return False
-    
-    try:
-        print("Google Sheetsから名寄せデータを同期中...")
-        result = sync_product_master()
-        
-        print()
-        print("同期結果:")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        
-        if result.get('status') == 'success':
-            print()
-            print("✅ 同期成功！")
-            
-            # 同期されたデータを確認
-            from core.database import supabase
-            
-            print()
-            print("=== 同期されたデータの確認 ===")
-            
-            # product_masterの確認
-            try:
-                products = supabase.table('product_master').select('common_code, product_name, rakuten_sku').limit(5).execute()
-                if products.data:
-                    print("商品マスター（サンプル）:")
-                    for product in products.data:
-                        print(f"  {product.get('common_code')}: {product.get('product_name')}")
-                        print(f"    楽天SKU: {product.get('rakuten_sku')}")
-                else:
-                    print("商品マスターにデータがありません")
-            except Exception as e:
-                print(f"商品マスター確認エラー: {str(e)}")
-            
-            return True
-        else:
-            print("❌ 同期に失敗しました")
-            return False
-            
-    except Exception as e:
-        print(f"❌ 同期エラー: {str(e)}")
-        return False
+# Supabase接続
+SUPABASE_URL = "https://equrcpeifogdrxoldkpe.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ"
 
-if __name__ == "__main__":
-    success = test_sheets_sync()
+print("=== Google Sheets Sync Status Check ===")
+
+try:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     
-    if success:
-        print()
-        print("🎉 次のステップ:")
-        print("1. 楽天注文商品と名寄せデータの連携テスト")
-        print("2. 在庫連動システムの実装")
+    # choice_code_mappingテーブルの現在の状況
+    result = supabase.table('choice_code_mapping').select('*', count='exact').execute()
+    print(f"choice_code_mapping table: {result.count} records")
+    
+    if result.data:
+        print("Existing mappings:")
+        for item in result.data:
+            print(f"   {item.get('choice_code')} -> {item.get('common_code')}")
     else:
-        print()
-        print("⚠️ まずSupabaseでテーブルを作成してください")
+        print("No choice code mappings found - need to import from spreadsheet")
+        
+except Exception as e:
+    print(f"ERROR: {str(e)}")
+
+print("\n=== NEXT ACTION ===")
+print("スプレッドシートから選択肢コード対応表をインポートする必要があります。")
+print("Google認証情報の設定またはCSVエクスポートが必要です。")
