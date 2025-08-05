@@ -75,6 +75,8 @@ class RakutenAPI:
                     raise HTTPException(status_code=401, detail=f"認証に失敗しました: {response.text}")
 
                 response.raise_for_status()
+                # 文字エンコード問題を修正
+                response.encoding = 'utf-8'
                 data = response.json()
                 order_numbers = data.get('orderNumberList', [])
 
@@ -111,6 +113,8 @@ class RakutenAPI:
                         raise HTTPException(status_code=401, detail="認証に失敗しました")
                     
                     response.raise_for_status()
+                    # 文字エンコード問題を修正
+                    response.encoding = 'utf-8'
                     data = response.json()
                     
                     if 'OrderModelList' in data:
@@ -347,6 +351,12 @@ class RakutenAPI:
                         choice_name = choice.get("choiceName", "")
                         choice_value = choice.get("choiceValue", "")
                         if choice_name and choice_value:
+                            # 文字エンコード修正
+                            try:
+                                choice_name = choice_name.encode('latin1').decode('utf-8', errors='ignore')
+                                choice_value = choice_value.encode('latin1').decode('utf-8', errors='ignore')
+                            except:
+                                pass  # エンコード修正に失敗した場合はそのまま使用
                             selected_choices.append(f"{choice_name}:{choice_value}")
                 choice_code = ",".join(selected_choices)
             elif isinstance(selected_choice_data, dict):
@@ -354,10 +364,19 @@ class RakutenAPI:
                 choice_name = selected_choice_data.get("choiceName", "")
                 choice_value = selected_choice_data.get("choiceValue", "")
                 if choice_name and choice_value:
+                    # 文字エンコード修正
+                    try:
+                        choice_name = choice_name.encode('latin1').decode('utf-8', errors='ignore')
+                        choice_value = choice_value.encode('latin1').decode('utf-8', errors='ignore')
+                    except:
+                        pass  # エンコード修正に失敗した場合はそのまま使用
                     choice_code = f"{choice_name}:{choice_value}"
             elif isinstance(selected_choice_data, str):
                 # 文字列形式の場合
-                choice_code = selected_choice_data
+                try:
+                    choice_code = selected_choice_data.encode('latin1').decode('utf-8', errors='ignore')
+                except:
+                    choice_code = selected_choice_data
         
         # selectedChoiceが空の場合、商品名から抽出を試行（フォールバック）
         if not choice_code:
