@@ -250,3 +250,121 @@ python supabase_inventory_sync_fixed.py
 - 毎日自動実行スケジューラー
 - 差分同期（増分のみ）
 - エラー通知機能
+
+## 【重要】楽天マッピングシステム完全修復（2025-08-05）
+
+### 問題の発端
+システムが壊れた可能性があり、在庫集計システムのマッピング率が98%から16-29%に急落。
+
+### 根本原因の発見
+1. **P01、S01、S02は選択肢コードだった**
+   - 在庫テーブルに直接P01、S01、S02が表示されていた
+   - 当初「間違った共通コード形式」と誤解していた
+   - 実際は正常な選択肢コードが在庫テーブルに記録されていた
+
+2. **選択肢コード対応表に未登録**
+   - P01、S01、S02が`choice_code_mapping`テーブルに登録されていなかった
+   - そのためマッピングシステムで処理できずに在庫テーブルに残った
+
+### マッピングシステムの構造理解
+```
+楽天注文データ → 選択肢コード抽出 → マッピング処理 → 共通コード → 在庫変動
+
+【2つのマッピングルート】
+1. 選択肢コード (R05, C01, P01等) → choice_code_mapping → 共通コード (CM001等)
+2. 楽天SKU (1833等) → product_master → 共通コード (CM035等)
+```
+
+### 実装済みシステムの確認
+- **選択肢コード → 基本コード直接マッピング**が既に実装済み
+- `_find_choice_code_mapping()`関数で`choice_info->>choice_code`検索
+- マッピング優先順位: 選択肢コード > 楽天SKU
+
+### 解決アプローチ
+1. **P01/S01/S02を選択肢コード対応表に追加**
+   - P01 → CM201 (Premium Product P01)
+   - S01 → CM202 (Special Product S01)  
+   - S02 → CM203 (Special Product S02)
+
+2. **在庫ダッシュボード改善**
+   - 共通コードの横に商品名を表示
+   - `product_master`と`choice_code_mapping`の両方から商品名取得
+
+### 技術的実装詳細
+
+#### 選択肢コード追加（add_choice_codes_simple.py）
+```python
+new_record = {
+    'choice_info': {
+        'choice_code': 'P01',
+        'choice_name': 'P01 Choice',
+        'choice_value': 'Premium Product P01',
+        'category': 'manual_addition'
+    },
+    'common_code': 'CM201',
+    'product_name': 'Premium Product P01',
+    'rakuten_sku': 'CHOICE_P01'  # 必須制約対応
+}
+```
+
+#### ダッシュボード商品名取得
+```python
+# 1. product_masterから検索
+product_result = supabase.table("product_master").select(
+    "product_name"
+).eq("common_code", common_code).execute()
+
+# 2. choice_code_mappingから検索（フォールバック）
+if not product_result.data:
+    choice_result = supabase.table("choice_code_mapping").select(
+        "product_name"
+    ).eq("common_code", common_code).execute()
+```
+
+### 最終結果（2025-08-05）
+```
+マッピング成功率: 100.0% (1586件中1586件)
+楽天商品データ: 1586件
+マッピング成功: 1586件  
+マッピング失敗: 0件
+在庫変動対象: 84商品
+
+主要在庫変動:
+- CM018: -132個
+- CM034: -18個  
+- CM021: -44個
+- CM027: -69個
+- CM001: -150個
+```
+
+### 重要な教訓
+1. **選択肢コードは正常な仕組み**
+   - P01/S01/S02形式は間違いではなく、選択肢コードの正常な形式
+   - 在庫テーブルに表示されるのは、マッピングが完了していない証拠
+
+2. **動的マッピングシステムの維持**
+   - Google Sheetsベースの動的マッピングは変更しない
+   - 固定マッピングにしない（ユーザー指摘通り）
+
+3. **系統的なデバッグの重要性**
+   - データベース構造の理解が最優先
+   - 既存システムの動作を十分理解してから修正
+
+### 関連ファイル
+- `improved_mapping_system.py` - メインマッピングシステム
+- `add_choice_codes_simple.py` - 選択肢コード追加ツール
+- `main_cloudrun.py` - ダッシュボードAPI（商品名表示機能付き）
+
+### テーブル構造重要ポイント
+```sql
+-- choice_code_mapping テーブル
+choice_info JSONB  -- {"choice_code": "P01", "choice_name": "..."}
+common_code TEXT   -- CM201
+product_name TEXT  -- Premium Product P01
+rakuten_sku TEXT   -- CHOICE_P01 (NOT NULL制約対応)
+
+-- inventory テーブル  
+common_code TEXT   -- CM201, P01（マッピング前）
+current_stock INT  -- 在庫数
+product_name TEXT  -- 商品名（新規追加）
+```
