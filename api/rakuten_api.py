@@ -296,25 +296,35 @@ class RakutenAPI:
         rakuten_item_number = item.get("itemNumber", "")
         rakuten_variant_id = item.get("variantId", "")
         
-        # 重要: 実際の楽天SKUを抽出
+        # 重要: 実際の楽天SKUを抽出（優先順位付き）
         rakuten_sku = ""
         sku_type = "simple"
         
-        # 注文データからSKU情報を抽出
-        if "skuId" in item:
+        # 1. 最優先: itemNumberから楽天SKUを取得
+        if rakuten_item_number:
+            rakuten_sku = str(rakuten_item_number)
+            sku_type = "item_number"
+        # 2. 次優先: skuIdフィールドから取得
+        elif "skuId" in item and item.get("skuId"):
             rakuten_sku = str(item.get("skuId", ""))
+            sku_type = "sku_id"
+        # 3. SkuModelListから取得
         elif "SkuModelList" in item:
-            # SkuModelListから最初のSKUを取得
             sku_models = item.get("SkuModelList", [])
             if sku_models and len(sku_models) > 0:
                 sku_model = sku_models[0]
-                rakuten_sku = str(sku_model.get("skuId", ""))
+                if sku_model.get("skuId"):
+                    rakuten_sku = str(sku_model.get("skuId", ""))
+                    sku_type = "sku_model_list"
+                elif sku_model.get("variantId"):
+                    rakuten_sku = str(sku_model.get("variantId", ""))
+                    sku_type = "variant_from_model"
                 if len(sku_models) > 1:
-                    sku_type = "variant"
+                    sku_type += "_multi"
+        # 4. 最後の手段: variantId
         elif rakuten_variant_id:
-            # variantIdがある場合はそれをSKUとして使用
             rakuten_sku = rakuten_variant_id
-            sku_type = "variant"
+            sku_type = "variant_id"
         
         # 商品重量・サイズ情報
         weight = item.get("weight", "")
@@ -372,7 +382,7 @@ class RakutenAPI:
             "choice_code": choice_code,
             "item_type": 1 if is_parent else 0,
             "rakuten_variant_id": rakuten_variant_id,
-            "rakuten_item_number": rakuten_item_number,
+            "rakuten_item_number": rakuten_sku,  # 実際のSKUを保存
             "shop_item_code": shop_item_code,
             "jan_code": jan_code,
             "category_path": category_path,

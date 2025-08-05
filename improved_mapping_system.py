@@ -32,8 +32,8 @@ class InventoryMappingSystem:
         if target_date is None:
             target_date = datetime.now().date()
         
-        # その日の楽天注文データを取得
-        orders = self.supabase.table("order_items").select("*").gte("created_at", f"{target_date}T00:00:00").lt("created_at", f"{target_date}T23:59:59").execute()
+        # その日の楽天注文データを取得（テストデータを除外）
+        orders = self.supabase.table("order_items").select("*").gte("created_at", f"{target_date}T00:00:00").lt("created_at", f"{target_date}T23:59:59").not_.like("product_code", "TEST%").execute()
         
         rakuten_sales = []
         
@@ -224,9 +224,11 @@ class InventoryMappingSystem:
     def _find_choice_code_mapping(self, choice_code):
         """選択肢コードのマッピング検索"""
         try:
-            result = self.supabase.table("choice_code_mapping").select("*").contains("choice_info", {"choice_code": choice_code}).execute()
+            # choice_info->>choice_code でJSONB内のchoice_codeフィールドを検索
+            result = self.supabase.table("choice_code_mapping").select("*").filter("choice_info->>choice_code", "eq", choice_code).execute()
             return result.data[0] if result.data else None
-        except:
+        except Exception as e:
+            logger.error(f"選択肢コードマッピング検索エラー ({choice_code}): {e}")
             return None
     
     def _find_normal_product_mapping(self, rakuten_sku, fallback_product_code=None):
