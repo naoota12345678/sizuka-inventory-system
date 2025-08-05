@@ -202,31 +202,39 @@ async def sales_dashboard(
         if not start_date:
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
-        # 売上データを取得
-        query = supabase.table('sales_master').select('*').gte('sale_date', start_date).lte('sale_date', end_date)
+        # order_itemsから売上データを取得（ordersテーブルと結合して注文日でフィルタ）
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, created_at, orders(order_date, created_at, id)'
+        ).gte('orders.order_date', start_date).lte('orders.order_date', end_date)
+        
         all_response = query.execute()
         all_sales = all_response.data if all_response.data else []
         
         # 統計計算
-        total_amount = sum(float(sale.get('total_amount', 0)) for sale in all_sales)
-        total_quantity = sum(int(sale.get('quantity', 0)) for sale in all_sales)
-        unique_orders = len(set(sale.get('platform_order_id') for sale in all_sales if sale.get('platform_order_id')))
+        total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
+        total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
+        unique_orders = len(set(item.get('orders', {}).get('id') for item in all_sales if item.get('orders', {}).get('id')))
         
         # 商品別集約
         product_sales = {}
-        for sale in all_sales:
-            common_code = sale.get('common_code', 'unknown')
-            if common_code not in product_sales:
-                product_sales[common_code] = {
-                    "common_code": common_code,
-                    "product_name": f"商品 ({common_code})",
+        for item in all_sales:
+            product_code = item.get('product_code', 'unknown')
+            product_name = item.get('product_name', '商品名未設定')
+            quantity = int(item.get('quantity', 0))
+            amount = float(item.get('price', 0)) * quantity
+            
+            if product_code not in product_sales:
+                product_sales[product_code] = {
+                    "product_code": product_code,
+                    "product_name": product_name,
                     "total_amount": 0,
                     "total_quantity": 0,
-                    "is_mapped": not common_code.startswith('UNMAPPED_')
+                    "order_count": 0
                 }
             
-            product_sales[common_code]["total_amount"] += float(sale.get('total_amount', 0))
-            product_sales[common_code]["total_quantity"] += int(sale.get('quantity', 0))
+            product_sales[product_code]["total_amount"] += amount
+            product_sales[product_code]["total_quantity"] += quantity
+            product_sales[product_code]["order_count"] += 1
         
         # ソートとページネーション
         sorted_products = sorted(product_sales.values(), key=lambda x: x["total_amount"], reverse=True)
@@ -253,6 +261,112 @@ async def sales_dashboard(
                 "total_pages": (len(sorted_products) + per_page - 1) // per_page
             },
             "items": page_products,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        )
+
+# ===== 期間別売上サマリーAPI =====
+@app.get("/api/sales/period")
+async def get_period_sales(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)"),
+    group_by: str = Query("day", description="集計単位 (day/week/month)")
+):
+    """期間別売上サマリー - order_itemsから直接集計"""
+    try:
+        # デフォルト期間設定
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # order_itemsから売上データを取得
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, created_at, orders(order_date, created_at)'
+        ).gte('orders.order_date', start_date).lte('orders.order_date', end_date)
+        
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # 期間別集計
+        from collections import defaultdict
+        from datetime import datetime
+        
+        period_sales = defaultdict(lambda: {
+            'total_amount': 0,
+            'total_quantity': 0,
+            'order_count': 0,
+            'unique_products': set()
+        })
+        
+        for item in items:
+            order_date = item.get('orders', {}).get('created_at', item.get('created_at'))
+            if not order_date:
+                continue
+                
+            # 日付をパース
+            date_obj = datetime.fromisoformat(order_date.replace('Z', '+00:00'))
+            
+            # 集計キー生成
+            if group_by == "day":
+                key = date_obj.strftime('%Y-%m-%d')
+            elif group_by == "week":
+                # 週の始まり（月曜日）を取得
+                week_start = date_obj - timedelta(days=date_obj.weekday())
+                key = f"{week_start.strftime('%Y-%m-%d')} (Week)"
+            elif group_by == "month":
+                key = date_obj.strftime('%Y-%m')
+            else:
+                key = date_obj.strftime('%Y-%m-%d')
+            
+            # 集計
+            quantity = int(item.get('quantity', 0))
+            amount = float(item.get('price', 0)) * quantity
+            
+            period_sales[key]['total_amount'] += amount
+            period_sales[key]['total_quantity'] += quantity
+            period_sales[key]['order_count'] += 1
+            period_sales[key]['unique_products'].add(item.get('product_code', ''))
+        
+        # 結果整形
+        result_data = []
+        for period, data in sorted(period_sales.items()):
+            result_data.append({
+                'period': period,
+                'total_amount': round(data['total_amount'], 2),
+                'total_quantity': data['total_quantity'],
+                'order_count': data['order_count'],
+                'unique_products': len(data['unique_products'])
+            })
+        
+        # 全体統計
+        total_amount = sum(item['total_amount'] for item in result_data)
+        total_quantity = sum(item['total_quantity'] for item in result_data)
+        total_orders = sum(item['order_count'] for item in result_data)
+        
+        return {
+            "status": "success",
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "group_by": group_by
+            },
+            "summary": {
+                "total_amount": round(total_amount, 2),
+                "total_quantity": total_quantity,
+                "total_orders": total_orders,
+                "period_count": len(result_data)
+            },
+            "data": result_data,
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
         
