@@ -2998,13 +2998,13 @@ async def mapping_failures(limit: int = 50):
         return {"status": "error", "message": str(e)}
 
 @app.get("/inventory-dashboard-html")
-async def inventory_dashboard_html(request: Request, low_stock_threshold: int = 5):
+async def inventory_dashboard_html(request: Request):
     """
-    在庫ダッシュボードのHTML画面
+    在庫ダッシュボードのHTML画面（シンプル版）
     """
     try:
         # 在庫データを取得
-        dashboard_data = await inventory_dashboard(low_stock_threshold)
+        dashboard_data = await inventory_dashboard()
         
         html_content = f"""
         <!DOCTYPE html>
@@ -3136,86 +3136,39 @@ async def inventory_dashboard_html(request: Request, low_stock_threshold: int = 
                 </div>
             """
         elif dashboard_data.get("status") == "success":
-            summary = dashboard_data["summary"]
-            alerts = dashboard_data["alerts"]
-            categories = dashboard_data["categories"]
+            inventory_list = dashboard_data["inventory_list"]
             
             html_content += f"""
-                <div class="dashboard-grid">
-                    <div class="card">
-                        <h3>総商品数</h3>
-                        <div class="stat-value">{summary['total_products']}</div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>在庫切れ</h3>
-                        <div class="stat-value" style="color: #ff6b6b;">{summary['out_of_stock_count']}</div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>低在庫</h3>
-                        <div class="stat-value" style="color: #feca57;">{summary['low_stock_count']}</div>
-                    </div>
-                    
-                    <div class="card">
-                        <h3>健全在庫</h3>
-                        <div class="stat-value" style="color: #54a0ff;">{summary['healthy_stock_count']}</div>
-                    </div>
-                </div>
+                <div style="background: rgba(255, 255, 255, 0.95); border-radius: 15px; padding: 25px; margin-bottom: 20px;">
+                    <h2>共通コード別在庫一覧 ({len(inventory_list)}商品)</h2>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background-color: #6f86d6; color: white;">
+                                <th style="padding: 12px; text-align: left;">共通コード</th>
+                                <th style="padding: 12px; text-align: right;">現在在庫</th>
+                                <th style="padding: 12px; text-align: right;">最小在庫</th>
+                                <th style="padding: 12px; text-align: left;">更新日時</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            """
+            
+            for item in inventory_list:
+                current_stock = item.get('current_stock', 0)
+                stock_color = "#d32f2f" if current_stock < 0 else "#ff9800" if current_stock == 0 else "#2e7d32"
                 
-                <div class="alert-section">
-                    <h2>⚠️ アラート</h2>
-                    <div class="alert-grid">
-                        <div class="alert-box alert-out-of-stock">
-                            <h3>🚨 在庫切れ商品 ({len(alerts['out_of_stock'])}件)</h3>
-            """
-            
-            for item in alerts['out_of_stock'][:5]:
                 html_content += f"""
-                            <div class="alert-item">
-                                <strong>{item.get('common_code', 'N/A')}</strong><br>
-                                在庫: {item.get('current_stock', 0)}個
-                            </div>
-                """
-            
-            html_content += f"""
-                        </div>
-                        
-                        <div class="alert-box alert-low-stock">
-                            <h3>⚡ 低在庫商品 ({len(alerts['low_stock'])}件)</h3>
-            """
-            
-            for item in alerts['low_stock'][:5]:
-                html_content += f"""
-                            <div class="alert-item">
-                                <strong>{item.get('common_code', 'N/A')}</strong><br>
-                                在庫: {item.get('current_stock', 0)}個
-                            </div>
+                            <tr style="border-bottom: 1px solid #ddd;">
+                                <td style="padding: 12px; font-weight: bold;">{item.get('common_code', 'N/A')}</td>
+                                <td style="padding: 12px; text-align: right; color: {stock_color}; font-weight: bold;">{current_stock}</td>
+                                <td style="padding: 12px; text-align: right;">{item.get('minimum_stock', 0)}</td>
+                                <td style="padding: 12px; font-size: 0.9rem;">{item.get('updated_at', 'N/A')[:19] if item.get('updated_at') else 'N/A'}</td>
+                            </tr>
                 """
             
             html_content += """
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="categories-grid">
-            """
-            
-            for category, stats in categories.items():
-                html_content += f"""
-                    <div class="category-card">
-                        <div style="font-weight: bold; margin-bottom: 10px;">{category}</div>
-                        <div style="font-size: 0.9rem; color: #666;">
-                            総数: {stats['total']}商品<br>
-                            正常: {stats['in_stock']}商品<br>
-                            低在庫: {stats['low_stock']}商品<br>
-                            在庫切れ: {stats['out_of_stock']}商品<br>
-                            総在庫: {stats['total_stock']}個
-                        </div>
-                    </div>
-                """
-            
-            html_content += """
+                        </tbody>
+                    </table>
                 </div>
             """
         
