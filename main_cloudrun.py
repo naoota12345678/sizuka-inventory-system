@@ -100,7 +100,8 @@ async def root():
             "get_mappings": "/api/get_choice_mappings", 
             "unmapped_analysis": "/api/analyze_unmapped_products",
             "health": "/health",
-            "docs": "/docs"
+            "docs": "/docs",
+            "inventory_dashboard": "/inventory-dashboard"
         }
     }
 
@@ -2923,6 +2924,337 @@ async def sales_dashboard(request: Request):
     return html_content
 
 # アプリケーションの起動
+@app.get("/inventory-dashboard")
+async def inventory_dashboard(low_stock_threshold: int = 5):
+    """
+    在庫状況ダッシュボードのデータを提供
+    """
+    try:
+        # 在庫データを取得
+        inventory_result = supabase.table("inventory").select("*").execute()
+        
+        if not inventory_result.data:
+            return {"message": "在庫データがありません", "status": "no_data"}
+        
+        # 在庫状況を分析
+        total_products = len(inventory_result.data)
+        active_products = sum(1 for item in inventory_result.data if item.get("is_active", True))
+        
+        # 在庫切れ商品
+        out_of_stock = [
+            item for item in inventory_result.data 
+            if item.get("current_stock", 0) <= 0 and item.get("is_active", True)
+        ]
+        
+        # 在庫が少ない商品
+        low_stock = [
+            item for item in inventory_result.data 
+            if 0 < item.get("current_stock", 0) <= low_stock_threshold and item.get("is_active", True)
+        ]
+        
+        # 商品コード別集計
+        product_categories = {}
+        for item in inventory_result.data:
+            code = item.get("common_code", "")
+            # CMで始まる場合はCMカテゴリー、PCで始まる場合はPCカテゴリーなど
+            if code.startswith("CM"):
+                category = "CM製品"
+            elif code.startswith("PC"):
+                category = "PC製品"
+            elif code.startswith("10"):
+                category = "スマレジ製品"
+            else:
+                category = "その他"
+            
+            if category not in product_categories:
+                product_categories[category] = {
+                    "total": 0,
+                    "in_stock": 0,
+                    "low_stock": 0,
+                    "out_of_stock": 0,
+                    "total_stock": 0
+                }
+            
+            product_categories[category]["total"] += 1
+            current_stock = item.get("current_stock", 0)
+            product_categories[category]["total_stock"] += current_stock
+            
+            if current_stock <= 0:
+                product_categories[category]["out_of_stock"] += 1
+            elif current_stock <= low_stock_threshold:
+                product_categories[category]["low_stock"] += 1
+            else:
+                product_categories[category]["in_stock"] += 1
+        
+        # トップ10在庫商品
+        top_stock_items = sorted(
+            [item for item in inventory_result.data if item.get("current_stock", 0) > 0],
+            key=lambda x: x.get("current_stock", 0),
+            reverse=True
+        )[:10]
+        
+        return {
+            "status": "success",
+            "summary": {
+                "total_products": total_products,
+                "active_products": active_products,
+                "out_of_stock_count": len(out_of_stock),
+                "low_stock_count": len(low_stock),
+                "healthy_stock_count": active_products - len(out_of_stock) - len(low_stock),
+                "total_stock_value": sum(item.get("current_stock", 0) for item in inventory_result.data)
+            },
+            "alerts": {
+                "out_of_stock": out_of_stock[:20],  # 最大20件
+                "low_stock": low_stock[:20]  # 最大20件
+            },
+            "categories": product_categories,
+            "top_stock_items": top_stock_items,
+            "settings": {
+                "low_stock_threshold": low_stock_threshold
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"inventory dashboard error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/inventory-dashboard-html")
+async def inventory_dashboard_html(request: Request, low_stock_threshold: int = 5):
+    """
+    在庫ダッシュボードのHTML画面
+    """
+    try:
+        # 在庫データを取得
+        dashboard_data = await inventory_dashboard(low_stock_threshold)
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="ja">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>在庫ダッシュボード - SIZUKA在庫管理システム</title>
+            <style>
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
+                
+                body {{
+                    font-family: 'Helvetica Neue', Arial, sans-serif;
+                    background: linear-gradient(135deg, #48c6ef 0%, #6f86d6 100%);
+                    min-height: 100vh;
+                    padding: 20px;
+                }}
+                
+                .container {{
+                    max-width: 1200px;
+                    margin: 0 auto;
+                }}
+                
+                .header {{
+                    text-align: center;
+                    color: white;
+                    margin-bottom: 30px;
+                }}
+                
+                .header h1 {{
+                    font-size: 2.5rem;
+                    margin-bottom: 10px;
+                }}
+                
+                .dashboard-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 30px;
+                }}
+                
+                .card {{
+                    background: rgba(255, 255, 255, 0.95);
+                    border-radius: 15px;
+                    padding: 25px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                    transition: transform 0.3s ease;
+                }}
+                
+                .card:hover {{
+                    transform: translateY(-5px);
+                }}
+                
+                .stat-value {{
+                    font-size: 2.5rem;
+                    font-weight: bold;
+                    color: #6f86d6;
+                    margin-bottom: 5px;
+                }}
+                
+                .alert-section {{
+                    background: rgba(255, 255, 255, 0.95);
+                    border-radius: 15px;
+                    padding: 25px;
+                    margin-bottom: 20px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                }}
+                
+                .alert-grid {{
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 30px;
+                }}
+                
+                .alert-box {{
+                    border-radius: 10px;
+                    padding: 20px;
+                }}
+                
+                .alert-out-of-stock {{
+                    background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+                    color: white;
+                }}
+                
+                .alert-low-stock {{
+                    background: linear-gradient(135deg, #feca57, #ff9ff3);
+                    color: white;
+                }}
+                
+                .alert-item {{
+                    background: rgba(255, 255, 255, 0.2);
+                    border-radius: 8px;
+                    padding: 15px;
+                    margin-bottom: 10px;
+                }}
+                
+                .categories-grid {{
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                    gap: 20px;
+                    margin-bottom: 30px;
+                }}
+                
+                .category-card {{
+                    background: rgba(255, 255, 255, 0.95);
+                    border-radius: 15px;
+                    padding: 20px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📦 在庫ダッシュボード</h1>
+                    <p>SIZUKA在庫管理システム</p>
+                </div>
+        """
+        
+        if dashboard_data.get("status") == "no_data":
+            html_content += """
+                <div style="text-align: center; color: white; font-size: 1.2rem; padding: 50px;">
+                    <h2>在庫データがありません</h2>
+                    <p>在庫データを登録してください</p>
+                </div>
+            """
+        elif dashboard_data.get("status") == "success":
+            summary = dashboard_data["summary"]
+            alerts = dashboard_data["alerts"]
+            categories = dashboard_data["categories"]
+            
+            html_content += f"""
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>総商品数</h3>
+                        <div class="stat-value">{summary['total_products']}</div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>在庫切れ</h3>
+                        <div class="stat-value" style="color: #ff6b6b;">{summary['out_of_stock_count']}</div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>低在庫</h3>
+                        <div class="stat-value" style="color: #feca57;">{summary['low_stock_count']}</div>
+                    </div>
+                    
+                    <div class="card">
+                        <h3>健全在庫</h3>
+                        <div class="stat-value" style="color: #54a0ff;">{summary['healthy_stock_count']}</div>
+                    </div>
+                </div>
+                
+                <div class="alert-section">
+                    <h2>⚠️ アラート</h2>
+                    <div class="alert-grid">
+                        <div class="alert-box alert-out-of-stock">
+                            <h3>🚨 在庫切れ商品 ({len(alerts['out_of_stock'])}件)</h3>
+            """
+            
+            for item in alerts['out_of_stock'][:5]:
+                html_content += f"""
+                            <div class="alert-item">
+                                <strong>{item.get('common_code', 'N/A')}</strong><br>
+                                在庫: {item.get('current_stock', 0)}個
+                            </div>
+                """
+            
+            html_content += f"""
+                        </div>
+                        
+                        <div class="alert-box alert-low-stock">
+                            <h3>⚡ 低在庫商品 ({len(alerts['low_stock'])}件)</h3>
+            """
+            
+            for item in alerts['low_stock'][:5]:
+                html_content += f"""
+                            <div class="alert-item">
+                                <strong>{item.get('common_code', 'N/A')}</strong><br>
+                                在庫: {item.get('current_stock', 0)}個
+                            </div>
+                """
+            
+            html_content += """
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="categories-grid">
+            """
+            
+            for category, stats in categories.items():
+                html_content += f"""
+                    <div class="category-card">
+                        <div style="font-weight: bold; margin-bottom: 10px;">{category}</div>
+                        <div style="font-size: 0.9rem; color: #666;">
+                            総数: {stats['total']}商品<br>
+                            正常: {stats['in_stock']}商品<br>
+                            低在庫: {stats['low_stock']}商品<br>
+                            在庫切れ: {stats['out_of_stock']}商品<br>
+                            総在庫: {stats['total_stock']}個
+                        </div>
+                    </div>
+                """
+            
+            html_content += """
+                </div>
+            """
+        
+        html_content += """
+                <div style="text-align: center; color: white; margin-top: 30px;">
+                    <p>最終更新: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        return HTMLResponse(content=html_content)
+        
+    except Exception as e:
+        logger.error(f"inventory dashboard HTML error: {str(e)}")
+        return HTMLResponse(content=f"<h1>エラー</h1><p>{str(e)}</p>", status_code=500)
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8080))
