@@ -2928,10 +2928,10 @@ async def sales_dashboard(request: Request):
 @app.get("/inventory-dashboard")
 async def inventory_dashboard(low_stock_threshold: int = 5):
     """
-    在庫状況ダッシュボードのデータを提供
+    在庫状況ダッシュボードのデータを提供（商品名付き）
     """
     try:
-        # 在庫データを取得（共通コード、在庫数のみ）
+        # 在庫データを取得
         inventory_result = supabase.table("inventory").select(
             "common_code, current_stock, minimum_stock, last_updated"
         ).order("common_code").execute()
@@ -2939,10 +2939,41 @@ async def inventory_dashboard(low_stock_threshold: int = 5):
         if not inventory_result.data:
             return {"message": "在庫データがありません", "status": "no_data"}
         
+        # 商品名を取得するため、product_masterと選択肢コード対応表から情報を取得
+        enhanced_inventory = []
+        
+        for item in inventory_result.data:
+            common_code = item["common_code"]
+            
+            # 1. product_masterから商品名を検索
+            product_result = supabase.table("product_master").select(
+                "product_name"
+            ).eq("common_code", common_code).limit(1).execute()
+            
+            product_name = "商品名未設定"
+            if product_result.data:
+                product_name = product_result.data[0].get("product_name", "商品名未設定")
+            else:
+                # 2. choice_code_mappingから商品名を検索（選択肢コードの場合）
+                choice_result = supabase.table("choice_code_mapping").select(
+                    "product_name"
+                ).eq("common_code", common_code).limit(1).execute()
+                
+                if choice_result.data:
+                    product_name = choice_result.data[0].get("product_name", "商品名未設定")
+            
+            enhanced_inventory.append({
+                "common_code": common_code,
+                "product_name": product_name,
+                "current_stock": item["current_stock"],
+                "minimum_stock": item["minimum_stock"],
+                "last_updated": item["last_updated"]
+            })
+        
         return {
             "status": "success",
-            "inventory_list": inventory_result.data,
-            "total_count": len(inventory_result.data)
+            "inventory_list": enhanced_inventory,
+            "total_count": len(enhanced_inventory)
         }
         
     except Exception as e:
@@ -3145,6 +3176,7 @@ async def inventory_dashboard_html(request: Request):
                         <thead>
                             <tr style="background-color: #6f86d6; color: white;">
                                 <th style="padding: 12px; text-align: left;">共通コード</th>
+                                <th style="padding: 12px; text-align: left;">商品名</th>
                                 <th style="padding: 12px; text-align: right;">現在在庫</th>
                                 <th style="padding: 12px; text-align: right;">最小在庫</th>
                                 <th style="padding: 12px; text-align: left;">更新日時</th>
@@ -3160,6 +3192,7 @@ async def inventory_dashboard_html(request: Request):
                 html_content += f"""
                             <tr style="border-bottom: 1px solid #ddd;">
                                 <td style="padding: 12px; font-weight: bold;">{item.get('common_code', 'N/A')}</td>
+                                <td style="padding: 12px;">{item.get('product_name', '商品名未設定')}</td>
                                 <td style="padding: 12px; text-align: right; color: {stock_color}; font-weight: bold;">{current_stock}</td>
                                 <td style="padding: 12px; text-align: right;">{item.get('minimum_stock', 0)}</td>
                                 <td style="padding: 12px; font-size: 0.9rem;">{item.get('last_updated', 'N/A')[:19] if item.get('last_updated') else 'N/A'}</td>
