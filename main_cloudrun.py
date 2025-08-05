@@ -101,7 +101,8 @@ async def root():
             "unmapped_analysis": "/api/analyze_unmapped_products",
             "health": "/health",
             "docs": "/docs",
-            "inventory_dashboard": "/inventory-dashboard"
+            "inventory_dashboard": "/inventory-dashboard",
+            "mapping_failures": "/mapping-failures"
         }
     }
 
@@ -2930,92 +2931,70 @@ async def inventory_dashboard(low_stock_threshold: int = 5):
     在庫状況ダッシュボードのデータを提供
     """
     try:
-        # 在庫データを取得
-        inventory_result = supabase.table("inventory").select("*").execute()
+        # 在庫データを取得（共通コード、在庫数のみ）
+        inventory_result = supabase.table("inventory").select(
+            "common_code, current_stock, minimum_stock, updated_at"
+        ).order("common_code").execute()
         
         if not inventory_result.data:
             return {"message": "在庫データがありません", "status": "no_data"}
         
-        # 在庫状況を分析
-        total_products = len(inventory_result.data)
-        active_products = sum(1 for item in inventory_result.data if item.get("is_active", True))
-        
-        # 在庫切れ商品
-        out_of_stock = [
-            item for item in inventory_result.data 
-            if item.get("current_stock", 0) <= 0 and item.get("is_active", True)
-        ]
-        
-        # 在庫が少ない商品
-        low_stock = [
-            item for item in inventory_result.data 
-            if 0 < item.get("current_stock", 0) <= low_stock_threshold and item.get("is_active", True)
-        ]
-        
-        # 商品コード別集計
-        product_categories = {}
-        for item in inventory_result.data:
-            code = item.get("common_code", "")
-            # CMで始まる場合はCMカテゴリー、PCで始まる場合はPCカテゴリーなど
-            if code.startswith("CM"):
-                category = "CM製品"
-            elif code.startswith("PC"):
-                category = "PC製品"
-            elif code.startswith("10"):
-                category = "スマレジ製品"
-            else:
-                category = "その他"
-            
-            if category not in product_categories:
-                product_categories[category] = {
-                    "total": 0,
-                    "in_stock": 0,
-                    "low_stock": 0,
-                    "out_of_stock": 0,
-                    "total_stock": 0
-                }
-            
-            product_categories[category]["total"] += 1
-            current_stock = item.get("current_stock", 0)
-            product_categories[category]["total_stock"] += current_stock
-            
-            if current_stock <= 0:
-                product_categories[category]["out_of_stock"] += 1
-            elif current_stock <= low_stock_threshold:
-                product_categories[category]["low_stock"] += 1
-            else:
-                product_categories[category]["in_stock"] += 1
-        
-        # トップ10在庫商品
-        top_stock_items = sorted(
-            [item for item in inventory_result.data if item.get("current_stock", 0) > 0],
-            key=lambda x: x.get("current_stock", 0),
-            reverse=True
-        )[:10]
-        
         return {
             "status": "success",
-            "summary": {
-                "total_products": total_products,
-                "active_products": active_products,
-                "out_of_stock_count": len(out_of_stock),
-                "low_stock_count": len(low_stock),
-                "healthy_stock_count": active_products - len(out_of_stock) - len(low_stock),
-                "total_stock_value": sum(item.get("current_stock", 0) for item in inventory_result.data)
-            },
-            "alerts": {
-                "out_of_stock": out_of_stock[:20],  # 最大20件
-                "low_stock": low_stock[:20]  # 最大20件
-            },
-            "categories": product_categories,
-            "top_stock_items": top_stock_items,
-            "settings": {
-                "low_stock_threshold": low_stock_threshold
-            }
+            "inventory_list": inventory_result.data,
+            "total_count": len(inventory_result.data)
         }
         
     except Exception as e:
         logger.error(f"inventory dashboard error: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/mapping-failures")
+async def mapping_failures(limit: int = 50):
+    """マッピング失敗商品一覧"""
+    try:
+        from fix_rakuten_sku_mapping import FixedMappingSystem
+        mapping_system = FixedMappingSystem()
+        
+        # order_itemsを取得（TESTデータ除外）
+        result = supabase.table("order_items").select("*").not_.like("product_code", "TEST%").limit(limit).execute()
+        
+        failed_items = []
+        success_count = 0
+        
+        for item in result.data:
+            try:
+                mapping = mapping_system.find_product_mapping(item)
+                if mapping:
+                    success_count += 1
+                else:
+                    failed_items.append({
+                        "id": item["id"],
+                        "product_code": item.get("product_code"),
+                        "rakuten_item_number": item.get("rakuten_item_number"),
+                        "choice_code": item.get("choice_code"),
+                        "order_number": item.get("order_number"),
+                        "created_at": item.get("created_at")
+                    })
+            except Exception as e:
+                logger.error(f"エラー ID {item.get('id')}: {str(e)}")
+        
+        total = len(result.data)
+        success_rate = (success_count / total * 100) if total > 0 else 0
+        
+        return {
+            "status": "success",
+            "summary": {
+                "total_checked": total,
+                "success_count": success_count,
+                "failed_count": len(failed_items),
+                "success_rate": round(success_rate, 1)
+            },
+            "failed_items": failed_items
+        }
+        
+    except Exception as e:
+        logger.error(f"mapping failures error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/inventory-dashboard-html")
