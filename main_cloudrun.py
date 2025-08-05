@@ -2933,7 +2933,7 @@ async def inventory_dashboard(low_stock_threshold: int = 5):
     try:
         # 在庫データを取得（共通コード、在庫数のみ）
         inventory_result = supabase.table("inventory").select(
-            "common_code, current_stock, minimum_stock, updated_at"
+            "common_code, current_stock, minimum_stock, last_updated"
         ).order("common_code").execute()
         
         if not inventory_result.data:
@@ -3162,7 +3162,7 @@ async def inventory_dashboard_html(request: Request):
                                 <td style="padding: 12px; font-weight: bold;">{item.get('common_code', 'N/A')}</td>
                                 <td style="padding: 12px; text-align: right; color: {stock_color}; font-weight: bold;">{current_stock}</td>
                                 <td style="padding: 12px; text-align: right;">{item.get('minimum_stock', 0)}</td>
-                                <td style="padding: 12px; font-size: 0.9rem;">{item.get('updated_at', 'N/A')[:19] if item.get('updated_at') else 'N/A'}</td>
+                                <td style="padding: 12px; font-size: 0.9rem;">{item.get('last_updated', 'N/A')[:19] if item.get('last_updated') else 'N/A'}</td>
                             </tr>
                 """
             
