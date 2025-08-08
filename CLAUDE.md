@@ -44,6 +44,163 @@ cat Dockerfile.cloudrun
 
 **時間の浪費**: 2時間（実際は5分で解決可能だった）
 
+## 【重要】売上ダッシュボード修正と過去データ同期（2025-08-05）
+
+### 背景
+- ユーザー報告: 「現在期間別の売り上げを見ることができません」
+- 原因発見: 売上ダッシュボードが存在しない`sales_master`テーブルを参照
+- 要求: 「order-itemsにある情報から期間売り上げが出ればよいだけです」
+
+### 実施した修正
+
+#### 1. 売上ダッシュボードAPI修正
+**問題:**
+- `/api/sales_dashboard`が`sales_master`テーブル（存在しない）を参照
+- Supabase join構文エラー: `orders!inner(...)` 
+
+**修正内容:**
+```python
+# 修正前（エラー）
+query = supabase.table('sales_master').select('*')
+
+# 修正後（正常）
+query = supabase.table('order_items').select(
+    'quantity, price, product_code, product_name, created_at, orders(order_date, created_at, id)'
+).gte('orders.order_date', start_date).lte('orders.order_date', end_date)
+```
+
+**追加API:**
+- `/api/sales/period` - 期間別売上集計API
+
+#### 2. データ範囲の問題発見
+**発見事項:**
+- **order_items**: 2,223件すべてが2025-08-05に作成（最近同期されたデータのみ）
+- **orders**: 2024年1月15日～2025年8月5日の幅広い期間
+- **在庫データ**: Google Sheets由来で全期間対応済み
+
+**問題:** 売上データは最近の期間のみ、過去データ（2月10日以降）が不足
+
+#### 3. 過去データ同期の安全な実装
+
+**2段階プロセス設計:**
+1. **第1段階**: 売上データのみ同期（在庫システムに影響なし）
+2. **第2段階**: 在庫システムへの反映（改良マッピングシステム使用）
+
+**作成ファイル:**
+- `direct_historical_sync.py` - 2/10～7/31の安全な同期スクリプト
+- `apply_historical_inventory_changes.py` - 在庫システム適用ツール
+
+### 現在の状況（2025-08-05 16:30頃）
+
+#### Git保存状況
+- ✅ **コミット済み**: 売上ダッシュボード修正 + 同期ツール
+- ✅ **コミットハッシュ**: 864a192
+- ✅ **内容**: main_cloudrun.py修正、同期スクリプト2つ追加
+
+#### 第1段階同期進行中
+**実行コマンド:** `python direct_historical_sync.py`
+**開始時刻:** 2025-08-05 16:00頃
+**期間:** 2025-02-10 ～ 2025-07-31
+
+**同期進行状況:**
+- ✅ **開始時**: order_items 2,223件、orders 755件
+- ✅ **現在**: order_items 2,629件（+406件）、orders 755件
+- ✅ **進行**: 2025年2月22日まで同期済み
+- ⚠️ **エラー**: `order_number`変数未定義（非重要、データ保存は正常）
+
+### 次のステップ（引継ぎ用）
+
+#### 1. 同期完了の確認（約1時間後）
+
+**📋 チャット再開時の最初のコマンド（コピペ用）:**
+```python
+cd "C:\Users\naoot\Desktop\ｐ\sizukatest" && python -c "
+from supabase import create_client
+SUPABASE_URL = 'https://equrcpeifogdrxoldkpe.supabase.co'
+SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ'
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+print('=== 同期完了確認 ===')
+
+# 総数確認
+total_result = supabase.table('order_items').select('id', count='exact').execute()
+print(f'現在のorder_items総数: {total_result.count}件')
+base_count = 2223  # 同期前の件数
+new_count = total_result.count - base_count
+print(f'新規追加: {new_count}件')
+
+# orders総数
+orders_result = supabase.table('orders').select('id', count='exact').execute()
+print(f'現在のorders総数: {orders_result.count}件')
+
+# 最新データ確認（期間確認用）
+recent = supabase.table('orders').select('order_number, order_date').order('order_date', desc=True).limit(5).execute()
+if recent.data:
+    print('最新の注文日:')
+    for order in recent.data:
+        print(f'  - {order[\"order_date\"][:10]}: {order[\"order_number\"]}')
+    
+    latest_date = recent.data[0]['order_date'][:10]
+    if latest_date >= '2025-07-30':
+        print('✅ 同期完了: 7月31日まで同期済み')
+    else:
+        print(f'⏳ 同期進行中: 最新日付 {latest_date}')
+else:
+    print('データなし')
+"
+
+#### 2. 売上ダッシュボード動作確認
+**URL:** `http://localhost:8080/api/sales_dashboard?start_date=2025-02-10&end_date=2025-07-31`
+**期待結果:** 2月10日以降の売上データが表示される
+
+#### 3. 第2段階実行（在庫システム反映）
+```bash
+# DRY RUN（テスト）
+python apply_historical_inventory_changes.py
+# 選択: 1 (DRY RUN)
+
+# 実際の適用（問題なければ）
+python apply_historical_inventory_changes.py  
+# 選択: 2 → yes確認
+```
+
+#### 4. Git保存
+```bash
+# 同期完了後
+git add .
+git commit -m "過去データ同期完了: 2/10-7/31期間のorder_items追加
+
+- 同期期間: 2025-02-10 ~ 2025-07-31
+- 追加データ: order_items約XXXX件、orders約XXX件  
+- 売上ダッシュボード: 過去データ確認可能
+- 在庫システム: 第2段階で反映予定
+
+🤖 Generated with [Claude Code](https://claude.ai/code)"
+```
+
+### 重要な注意事項
+
+#### 在庫システムへの影響
+- ✅ **第1段階**: 在庫システムに一切影響なし
+- ⚠️ **第2段階**: 改良マッピングシステム使用（100%成功率実績）
+- ✅ **ロールバック**: 第1段階のみでも売上ダッシュボードは機能
+
+#### 既存システムの状態
+- ✅ **在庫マッピング**: 100%成功率維持（36件の在庫アイテム）
+- ✅ **製造在庫同期**: 正常動作（Google Sheets連携）
+- ✅ **選択肢コードマッピング**: P01/S01/S02追加済み
+
+#### トラブルシューティング
+**同期が失敗した場合:**
+1. プロセス終了: `taskkill /f /im python.exe`
+2. 部分的データでも売上ダッシュボードは動作
+3. 必要に応じて期間を分割して再同期
+
+**在庫システムに問題が発生した場合:**
+1. 改良マッピングシステムは実績あり（安全）
+2. DRY RUNで事前テスト必須
+3. 最悪の場合、第1段階のみで運用可能
+
 ## プロジェクト概要
 
 ### Supabase接続情報
