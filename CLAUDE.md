@@ -214,11 +214,30 @@ git commit -m "過去データ同期完了: 2/10-7/31期間のorder_items追加
 - RAKUTEN_SERVICE_SECRET
 - RAKUTEN_LICENSE_KEY
 
-### デプロイ情報
-- **プラットフォーム**: Google Cloud Run
+### 【重要】プロジェクト構成 (2025-08-09)
+
+#### Cloud Run (バックエンドAPI)
+- **GCPプロジェクト**: `sizuka-inventory-system`
+- **サービス名**: `sizuka-inventory-system`
+- **本番URL**: https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app
 - **CI/CD**: GitHub Actions
 - **Dockerファイル**: Dockerfile.cloudrun
 - **メインファイル**: main_cloudrun.py
+
+#### Firebase Hosting (フロントエンド)
+- **Firebaseプロジェクト**: `kyuyoprint`
+- **デフォルトURL**: https://kyuyoprint.web.app
+- **独自ドメイン**: https://romu.ai (SIZUKA統合管理システム用)
+- **給与明細システム**: kyuyoprint.web.appの別サイト
+
+#### 正しいAPI設定
+```javascript
+const API_BASE = 'https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/api';
+```
+
+### デプロイ手順
+1. Cloud Run: `gcloud config set project sizuka-inventory-system`
+2. Firebase: `gcloud config set project kyuyoprint` → `firebase use kyuyoprint`
 
 ## データベース構造
 
