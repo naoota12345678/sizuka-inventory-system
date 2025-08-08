@@ -85,6 +85,7 @@ async def root():
         "message": "SIZUKA在庫管理システム - Cloud Run版",
         "version": "2.0.2",
         "status": "running",
+        "dashboard": "/dashboard",  # ダッシュボードへのリンク
         "endpoints": {
             "inventory": "/api/inventory_list",
             "sales": "/api/sales_dashboard", 
@@ -105,6 +106,37 @@ async def root():
             "mapping_failures": "/mapping-failures"
         }
     }
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard():
+    """ダッシュボードHTML表示"""
+    try:
+        # dashboard.htmlファイルを読み込む
+        with open("dashboard.html", "r", encoding="utf-8") as f:
+            html_content = f.read()
+        return HTMLResponse(content=html_content)
+    except FileNotFoundError:
+        # ファイルが見つからない場合はシンプルなHTMLを返す
+        return HTMLResponse(content="""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>SIZUKA 統合管理システム</title>
+            <meta charset="UTF-8">
+        </head>
+        <body>
+            <h1>SIZUKA 統合管理システム</h1>
+            <p>dashboard.htmlファイルが見つかりません。</p>
+            <p>APIは正常に動作しています。</p>
+            <ul>
+                <li><a href="/api/inventory_list">在庫一覧API</a></li>
+                <li><a href="/api/sales_dashboard">売上ダッシュボードAPI</a></li>
+                <li><a href="/health">ヘルスチェック</a></li>
+                <li><a href="/docs">APIドキュメント</a></li>
+            </ul>
+        </body>
+        </html>
+        """)
 
 @app.get("/favicon.ico")
 async def favicon():
