@@ -214,9 +214,15 @@ git commit -m "過去データ同期完了: 2/10-7/31期間のorder_items追加
 - RAKUTEN_SERVICE_SECRET
 - RAKUTEN_LICENSE_KEY
 
-### 【重要】プロジェクト構成 (2025-08-09)
+### 【正しい】プロジェクト構成 (2025-08-09修正)
 
-#### Cloud Run (バックエンドAPI)
+#### Vercel (フロントエンド + バックエンドAPI)
+- **プラットフォーム**: Vercel
+- **本番URL**: https://sizuka-inventory-system.vercel.app
+- **APIエンドポイント**: https://sizuka-inventory-system.vercel.app/api
+- **デプロイ**: GitHub連携による自動デプロイ
+
+#### Cloud Run (バックエンドAPI - 代替)
 - **GCPプロジェクト**: `sizuka-inventory-system`
 - **サービス名**: `sizuka-inventory-system`
 - **本番URL**: https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app
@@ -224,20 +230,14 @@ git commit -m "過去データ同期完了: 2/10-7/31期間のorder_items追加
 - **Dockerファイル**: Dockerfile.cloudrun
 - **メインファイル**: main_cloudrun.py
 
-#### Firebase Hosting (フロントエンド)
-- **Firebaseプロジェクト**: `kyuyoprint`
-- **デフォルトURL**: https://kyuyoprint.web.app
-- **独自ドメイン**: https://romu.ai (SIZUKA統合管理システム用)
-- **給与明細システム**: kyuyoprint.web.appの別サイト
-
 #### 正しいAPI設定
 ```javascript
-const API_BASE = 'https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/api';
+const API_BASE = 'https://sizuka-inventory-system.vercel.app/api';
 ```
 
 ### デプロイ手順
-1. Cloud Run: `gcloud config set project sizuka-inventory-system`
-2. Firebase: `gcloud config set project kyuyoprint` → `firebase use kyuyoprint`
+- Vercel: GitHubにpushで自動デプロイ
+- Cloud Run: `gcloud config set project sizuka-inventory-system`
 
 ## データベース構造
 
