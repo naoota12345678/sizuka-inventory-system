@@ -207,9 +207,21 @@ async def search_inventory(
         # ソート
         items.sort(key=lambda x: x.get('common_code', ''))
         
+        # サマリー情報を計算
+        total_products = len(items)
+        low_stock_count = len([item for item in items if item.get('current_stock', 0) <= item.get('minimum_stock', 0)])
+        out_of_stock_count = len([item for item in items if item.get('current_stock', 0) == 0])
+        normal_stock_count = total_products - low_stock_count
+        
         return {
             "status": "success",
             "total_items": len(items),
+            "summary": {
+                "total_products": total_products,
+                "normal_stock": normal_stock_count,
+                "low_stock": low_stock_count,
+                "out_of_stock": out_of_stock_count
+            },
             "items": items[:50],  # 最初の50件を返す
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
@@ -340,9 +352,11 @@ async def search_sales(
             },
             "summary": {
                 "total_amount": total_amount,
+                "total_sales": total_amount,  # フロントエンド互換性のため
                 "total_quantity": total_quantity,
                 "total_orders": len(items),
-                "unique_products": len(product_summary)
+                "unique_products": len(product_summary),
+                "total_products": len(product_summary)  # フロントエンド互換性のため
             },
             "items": sorted_products[:20],  # トップ20商品
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
