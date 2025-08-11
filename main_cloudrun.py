@@ -3476,62 +3476,93 @@ async def sales_dashboard(request: Request):
             const endDate = document.getElementById('endDate').value;
             const groupBy = document.getElementById('groupBy').value;
             
-            // 商品別売上取得
-            try {
-                const response = await fetch(`${window.location.origin}/api/sales/products?start_date=${startDate}&end_date=${endDate}`);
-                const data = await response.json();
-                
-                if (data.status === 'success') {
-                    updateSummary(data.summary);
-                    updateProductsTable(data.products);
-                }
-            } catch (error) {
-                console.error('Error loading products:', error);
-            }
+            // 日数を計算
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+            const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
             
-            // 期間別売上取得
+            // 売上データ取得
             try {
-                const response = await fetch(`${window.location.origin}/api/sales/summary?start_date=${startDate}&end_date=${endDate}&group_by=${groupBy}`);
+                const response = await fetch(`${window.location.origin}/api/sales_search?days=${days}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    updateTimelineTable(data.timeline);
+                    // サマリー更新
+                    updateSummary({
+                        total_sales: data.summary.total_amount || 0,
+                        total_quantity: data.summary.total_quantity || data.items?.reduce((sum, item) => sum + item.quantity, 0) || 0,
+                        total_orders: data.summary.total_orders || 0,
+                        unique_products: data.summary.unique_products || data.items?.length || 0
+                    });
+                    
+                    // 商品テーブル更新
+                    if (data.items) {
+                        updateProductsTable(data.items);
+                    } else if (data.top_products) {
+                        updateProductsTable(data.top_products);
+                    }
+                    
+                    // タイムライン更新
+                    if (data.daily_sales) {
+                        const timeline = data.daily_sales.map(item => ({
+                            period: item.sales_date || item.date || '',
+                            total_amount: item.total_amount || 0,
+                            quantity: item.quantity || item.order_count || 0,
+                            orders_count: item.order_count || item.orders_count || 0
+                        }));
+                        updateTimelineTable(timeline);
+                    }
                 }
             } catch (error) {
-                console.error('Error loading timeline:', error);
+                console.error('Error loading data:', error);
+                // エラー時は空データで更新
+                updateSummary({
+                    total_sales: 0,
+                    total_quantity: 0,
+                    total_orders: 0,
+                    unique_products: 0
+                });
             }
         }
 
         function updateSummary(summary) {
-            document.getElementById('totalSales').textContent = summary.total_sales.toLocaleString();
-            document.getElementById('totalQuantity').textContent = summary.total_quantity.toLocaleString();
-            document.getElementById('totalOrders').textContent = summary.total_orders.toLocaleString();
-            document.getElementById('uniqueProducts').textContent = summary.unique_products.toLocaleString();
+            document.getElementById('totalSales').textContent = (summary.total_sales || 0).toLocaleString();
+            document.getElementById('totalQuantity').textContent = (summary.total_quantity || 0).toLocaleString();
+            document.getElementById('totalOrders').textContent = (summary.total_orders || 0).toLocaleString();
+            document.getElementById('uniqueProducts').textContent = (summary.unique_products || 0).toLocaleString();
         }
 
         function updateProductsTable(products) {
             const tbody = document.getElementById('productsBody');
+            if (!products || products.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7">データがありません</td></tr>';
+                return;
+            }
             tbody.innerHTML = products.map(product => `
                 <tr>
-                    <td>${product.product_code}</td>
-                    <td>${product.product_name}</td>
+                    <td>${product.product_code || ''}</td>
+                    <td>${product.product_name || ''}</td>
                     <td>${product.common_code || '-'}</td>
-                    <td class="number">${product.quantity.toLocaleString()}</td>
-                    <td class="number">¥${product.total_amount.toLocaleString()}</td>
-                    <td class="number">${product.orders_count.toLocaleString()}</td>
-                    <td class="number">¥${Math.round(product.average_price).toLocaleString()}</td>
+                    <td class="number">${(product.quantity || product.total_quantity || 0).toLocaleString()}</td>
+                    <td class="number">¥${(product.total_amount || 0).toLocaleString()}</td>
+                    <td class="number">${(product.orders_count || product.order_count || 0).toLocaleString()}</td>
+                    <td class="number">¥${Math.round(product.average_price || 0).toLocaleString()}</td>
                 </tr>
             `).join('');
         }
 
         function updateTimelineTable(timeline) {
             const tbody = document.getElementById('timelineBody');
+            if (!timeline || timeline.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4">データがありません</td></tr>';
+                return;
+            }
             tbody.innerHTML = timeline.map(period => `
                 <tr>
-                    <td>${period.period}</td>
-                    <td class="number">¥${period.total_amount.toLocaleString()}</td>
-                    <td class="number">${period.quantity.toLocaleString()}</td>
-                    <td class="number">${period.orders_count.toLocaleString()}</td>
+                    <td>${period.period || ''}</td>
+                    <td class="number">¥${(period.total_amount || 0).toLocaleString()}</td>
+                    <td class="number">${(period.quantity || 0).toLocaleString()}</td>
+                    <td class="number">${(period.orders_count || 0).toLocaleString()}</td>
                 </tr>
             `).join('');
         }
