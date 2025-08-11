@@ -3526,10 +3526,11 @@ async def sales_dashboard(request: Request):
         }
 
         function updateSummary(summary) {
-            document.getElementById('totalSales').textContent = (summary.total_sales || 0).toLocaleString();
-            document.getElementById('totalQuantity').textContent = (summary.total_quantity || 0).toLocaleString();
-            document.getElementById('totalOrders').textContent = (summary.total_orders || 0).toLocaleString();
-            document.getElementById('uniqueProducts').textContent = (summary.unique_products || 0).toLocaleString();
+            const safeNumber = (value) => Number(value) || 0;
+            document.getElementById('totalSales').textContent = safeNumber(summary?.total_sales).toLocaleString();
+            document.getElementById('totalQuantity').textContent = safeNumber(summary?.total_quantity).toLocaleString();
+            document.getElementById('totalOrders').textContent = safeNumber(summary?.total_orders).toLocaleString();
+            document.getElementById('uniqueProducts').textContent = safeNumber(summary?.unique_products).toLocaleString();
         }
 
         function updateProductsTable(products) {
@@ -3538,17 +3539,25 @@ async def sales_dashboard(request: Request):
                 tbody.innerHTML = '<tr><td colspan="7">データがありません</td></tr>';
                 return;
             }
-            tbody.innerHTML = products.map(product => `
+            const safeNumber = (value) => Number(value) || 0;
+            tbody.innerHTML = products.map(product => {
+                const quantity = safeNumber(product.quantity || product.total_quantity);
+                const totalAmount = safeNumber(product.total_amount);
+                const orderCount = safeNumber(product.orders_count || product.order_count);
+                const avgPrice = safeNumber(product.average_price);
+                
+                return `
                 <tr>
                     <td>${product.product_code || ''}</td>
                     <td>${product.product_name || ''}</td>
                     <td>${product.common_code || '-'}</td>
-                    <td class="number">${(product.quantity || product.total_quantity || 0).toLocaleString()}</td>
-                    <td class="number">¥${(product.total_amount || 0).toLocaleString()}</td>
-                    <td class="number">${(product.orders_count || product.order_count || 0).toLocaleString()}</td>
-                    <td class="number">¥${Math.round(product.average_price || 0).toLocaleString()}</td>
+                    <td class="number">${quantity.toLocaleString()}</td>
+                    <td class="number">¥${totalAmount.toLocaleString()}</td>
+                    <td class="number">${orderCount.toLocaleString()}</td>
+                    <td class="number">¥${Math.round(avgPrice).toLocaleString()}</td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function updateTimelineTable(timeline) {
@@ -3557,14 +3566,21 @@ async def sales_dashboard(request: Request):
                 tbody.innerHTML = '<tr><td colspan="4">データがありません</td></tr>';
                 return;
             }
-            tbody.innerHTML = timeline.map(period => `
+            const safeNumber = (value) => Number(value) || 0;
+            tbody.innerHTML = timeline.map(period => {
+                const totalAmount = safeNumber(period.total_amount);
+                const quantity = safeNumber(period.quantity);
+                const ordersCount = safeNumber(period.orders_count);
+                
+                return `
                 <tr>
                     <td>${period.period || ''}</td>
-                    <td class="number">¥${(period.total_amount || 0).toLocaleString()}</td>
-                    <td class="number">${(period.quantity || 0).toLocaleString()}</td>
-                    <td class="number">${(period.orders_count || 0).toLocaleString()}</td>
+                    <td class="number">¥${totalAmount.toLocaleString()}</td>
+                    <td class="number">${quantity.toLocaleString()}</td>
+                    <td class="number">${ordersCount.toLocaleString()}</td>
                 </tr>
-            `).join('');
+                `;
+            }).join('');
         }
 
         function showTab(tabName) {
