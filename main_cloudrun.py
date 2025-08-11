@@ -3006,10 +3006,15 @@ async def get_sales_ranking(
                 if order_id:
                     product_sales[product_code]['order_ids'].add(order_id)
         
-        # setをリストに変換し、注文数を設定
+        # setをリストに変換し、注文数を設定、平均価格計算
         products = []
         for product_data in product_sales.values():
             product_data['orders_count'] = len(product_data['order_ids'])
+            # 平均価格計算
+            if product_data['quantity'] > 0:
+                product_data['average_price'] = product_data['total_amount'] / product_data['quantity']
+            else:
+                product_data['average_price'] = 0
             del product_data['order_ids']  # setは JSON serializable でないため削除
             products.append(product_data)
         
