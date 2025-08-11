@@ -3481,27 +3481,24 @@ async def sales_dashboard(request: Request):
                 const data = await response.json();
                 
                 if (data.status === 'success') {
-                    // サマリー更新
+                    // サマリー更新 - 実際のAPIレスポンス構造に合わせる
+                    const summary = data.summary || {};
                     updateSummary({
-                        total_sales: data.total_amount || 0,
-                        total_quantity: data.total_quantity || 0,
-                        total_orders: data.total_orders || 0,
-                        unique_products: data.unique_products || 0
+                        total_sales: summary.total_amount || 0,
+                        total_quantity: summary.total_quantity || 0,
+                        total_orders: summary.total_orders || 0,
+                        unique_products: summary.unique_products || 0
                     });
                     
-                    // 商品テーブル更新
-                    if (data.products && Array.isArray(data.products)) {
-                        updateProductsTable(data.products);
+                    // 商品テーブル更新 - data.itemsを使用
+                    if (data.items && Array.isArray(data.items)) {
+                        updateProductsTable(data.items);
                     } else {
                         updateProductsTable([]);
                     }
                     
-                    // タイムライン更新（period_salesを使用）
-                    if (data.period_sales && Array.isArray(data.period_sales)) {
-                        updateTimelineTable(data.period_sales);
-                    } else {
-                        updateTimelineTable([]);
-                    }
+                    // タイムラインは空（このAPIには期間別データなし）
+                    updateTimelineTable([]);
                 }
             } catch (error) {
                 console.error('Error loading data:', error);
