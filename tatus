@@ -1,0 +1,5 @@
+[33mad8237b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m 売上ダッシュボードAPIのNoneTypeエラー修正
+[33m44685d0[m 売上検索API修正: toLocaleStringエラー解消
+[33m15ddae0[m 在庫一覧API修正: 商品名表示とマイナス在庫対応
+[33m4976ccb[m 在庫テーブル不正データクリーンアップ完了
+[33macdfbd5[m 緊急修正: sales_search APIのフロントエンド互換性を完全対応
