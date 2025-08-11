@@ -366,47 +366,85 @@ async def search_sales(
                 or product_lower in (item.get('product_name', '') or '').lower()
             ]
         
-        # 集計
-        total_amount = sum(item.get('price', 0) * item.get('quantity', 0) for item in items)
-        total_quantity = sum(item.get('quantity', 0) for item in items)
+        # 安全な数値処理のヘルパー関数
+        def safe_float(value, default=0.0):
+            """安全にfloat値を取得"""
+            try:
+                if value is None:
+                    return default
+                return float(value)
+            except (ValueError, TypeError):
+                return default
+        
+        def safe_int(value, default=0):
+            """安全にint値を取得"""
+            try:
+                if value is None:
+                    return default
+                return int(value)
+            except (ValueError, TypeError):
+                return default
+        
+        # 集計（安全な数値処理）
+        total_amount = 0.0
+        total_quantity = 0
+        
+        for item in items:
+            price = safe_float(item.get('price', 0))
+            quantity = safe_int(item.get('quantity', 0))
+            total_amount += price * quantity
+            total_quantity += quantity
         
         # 商品別集計
         product_summary = {}
         for item in items:
-            code = item.get('product_code', 'unknown')
+            code = item.get('product_code', 'unknown') or 'unknown'
+            price = safe_float(item.get('price', 0))
+            quantity = safe_int(item.get('quantity', 0))
+            
             if code not in product_summary:
                 product_summary[code] = {
                     'product_code': code,
-                    'product_name': item.get('product_name', ''),
+                    'product_name': item.get('product_name', '') or '',
                     'total_quantity': 0,
-                    'total_amount': 0
+                    'total_amount': 0.0
                 }
-            product_summary[code]['total_quantity'] += item.get('quantity', 0)
-            product_summary[code]['total_amount'] += item.get('price', 0) * item.get('quantity', 0)
+            
+            product_summary[code]['total_quantity'] += quantity
+            product_summary[code]['total_amount'] += price * quantity
         
         # ソート（売上金額順）
         sorted_products = sorted(product_summary.values(), key=lambda x: x['total_amount'], reverse=True)
+        
+        # 安全な平均計算
+        avg_daily_sales = round(total_amount / days, 2) if days > 0 and total_amount is not None else 0.0
+        
+        # レスポンス用の数値を安全に準備
+        safe_total_amount = round(float(total_amount or 0), 2)
+        safe_total_quantity = int(total_quantity or 0)
+        safe_total_orders = len(items or [])
+        safe_unique_products = len(product_summary or {})
         
         return {
             "status": "success",
             "period": {
                 "start_date": str(start_date),
                 "end_date": str(end_date),
-                "days": days
+                "days": int(days)
             },
             "summary": {
-                "total_amount": total_amount,
-                "total_sales": total_amount,  # フロントエンド互換性のため
-                "total_quantity": total_quantity,
-                "total_units": total_quantity,  # フロントエンド互換性のため
-                "total_orders": len(items),
-                "unique_products": len(product_summary),
-                "total_products": len(product_summary),  # フロントエンド互換性のため
-                "period_days": days,  # フロントエンド互換性のため
-                "avg_daily_sales": total_amount / days if days > 0 else 0  # フロントエンド互換性のため
+                "total_amount": safe_total_amount,
+                "total_sales": safe_total_amount,  # フロントエンド互換性のため
+                "total_quantity": safe_total_quantity,
+                "total_units": safe_total_quantity,  # フロントエンド互換性のため
+                "total_orders": safe_total_orders,
+                "unique_products": safe_unique_products,
+                "total_products": safe_unique_products,  # フロントエンド互換性のため
+                "period_days": int(days),  # フロントエンド互換性のため
+                "avg_daily_sales": avg_daily_sales  # フロントエンド互換性のため
             },
-            "items": sorted_products[:20],  # トップ20商品
-            "top_products": sorted_products[:20],  # フロントエンド互換性のため
+            "items": sorted_products[:20] if sorted_products else [],  # トップ20商品
+            "top_products": sorted_products[:20] if sorted_products else [],  # フロントエンド互換性のため
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
         
