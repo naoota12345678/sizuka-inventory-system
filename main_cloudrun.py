@@ -166,6 +166,64 @@ async def health_check():
         }
 
 # ===== 在庫管理API =====
+@app.get("/api/inventory_search")
+async def search_inventory(
+    search: Optional[str] = Query(None, description="検索キーワード"),
+    low_stock: bool = Query(False, description="在庫不足のみ表示")
+):
+    """在庫検索API"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 基本クエリ
+        query = supabase.table('inventory').select('*')
+        
+        # 検索条件
+        if search:
+            # Supabase Python Clientでは複雑なOR検索はサポートされていないため、
+            # データを取得してからPythonでフィルタリング
+            all_items = query.execute()
+            items = all_items.data if all_items.data else []
+            
+            search_lower = search.lower()
+            items = [
+                item for item in items
+                if search_lower in (item.get('common_code', '') or '').lower()
+                or search_lower in (item.get('product_name', '') or '').lower()
+                or search_lower in (item.get('jan_code', '') or '').lower()
+            ]
+        else:
+            response = query.execute()
+            items = response.data if response.data else []
+        
+        # 在庫不足フィルター
+        if low_stock:
+            items = [
+                item for item in items
+                if item.get('current_stock', 0) <= item.get('minimum_stock', 0)
+            ]
+        
+        # ソート
+        items.sort(key=lambda x: x.get('common_code', ''))
+        
+        return {
+            "status": "success",
+            "total_items": len(items),
+            "items": items[:50],  # 最初の50件を返す
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        )
+
 @app.get("/api/inventory_list")
 async def get_inventory_list(
     page: Optional[int] = Query(1, description="ページ番号"),
@@ -216,6 +274,90 @@ async def get_inventory_list(
         )
 
 # ===== 売上ダッシュボードAPI =====
+@app.get("/api/sales_search")
+async def search_sales(
+    days: int = Query(7, description="過去N日間のデータ"),
+    product: Optional[str] = Query(None, description="商品コードまたは商品名で検索")
+):
+    """売上検索API"""
+    try:
+        if not supabase:
+            return {"error": "Database connection not configured"}
+        
+        # 日付範囲の計算
+        end_date = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+        start_date = end_date - timedelta(days=days)
+        
+        # 基本クエリ
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, created_at, orders(order_date, created_at, id)'
+        )
+        
+        # 日付フィルター
+        query = query.gte('orders.order_date', str(start_date))
+        query = query.lte('orders.order_date', str(end_date))
+        
+        # データ取得
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # 商品フィルター
+        if product and items:
+            product_lower = product.lower()
+            items = [
+                item for item in items
+                if product_lower in (item.get('product_code', '') or '').lower()
+                or product_lower in (item.get('product_name', '') or '').lower()
+            ]
+        
+        # 集計
+        total_amount = sum(item.get('price', 0) * item.get('quantity', 0) for item in items)
+        total_quantity = sum(item.get('quantity', 0) for item in items)
+        
+        # 商品別集計
+        product_summary = {}
+        for item in items:
+            code = item.get('product_code', 'unknown')
+            if code not in product_summary:
+                product_summary[code] = {
+                    'product_code': code,
+                    'product_name': item.get('product_name', ''),
+                    'total_quantity': 0,
+                    'total_amount': 0
+                }
+            product_summary[code]['total_quantity'] += item.get('quantity', 0)
+            product_summary[code]['total_amount'] += item.get('price', 0) * item.get('quantity', 0)
+        
+        # ソート（売上金額順）
+        sorted_products = sorted(product_summary.values(), key=lambda x: x['total_amount'], reverse=True)
+        
+        return {
+            "status": "success",
+            "period": {
+                "start_date": str(start_date),
+                "end_date": str(end_date),
+                "days": days
+            },
+            "summary": {
+                "total_amount": total_amount,
+                "total_quantity": total_quantity,
+                "total_orders": len(items),
+                "unique_products": len(product_summary)
+            },
+            "items": sorted_products[:20],  # トップ20商品
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "error",
+                "message": str(e),
+                "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+            }
+        )
+
 @app.get("/api/sales_dashboard")
 async def sales_dashboard(
     start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
