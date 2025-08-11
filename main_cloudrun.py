@@ -3488,11 +3488,12 @@ async def sales_dashboard(request: Request):
                 
                 if (data.status === 'success') {
                     // サマリー更新
+                    const summary = data.summary || {};
                     updateSummary({
-                        total_sales: data.summary.total_amount || 0,
-                        total_quantity: data.summary.total_quantity || data.items?.reduce((sum, item) => sum + item.quantity, 0) || 0,
-                        total_orders: data.summary.total_orders || 0,
-                        unique_products: data.summary.unique_products || data.items?.length || 0
+                        total_sales: summary.total_sales || summary.total_amount || 0,
+                        total_quantity: summary.total_quantity || (data.items ? data.items.reduce((sum, item) => sum + (item.quantity || 0), 0) : 0),
+                        total_orders: summary.total_orders || 0,
+                        unique_products: summary.unique_products || (data.items ? data.items.length : 0)
                     });
                     
                     // 商品テーブル更新
@@ -3503,14 +3504,8 @@ async def sales_dashboard(request: Request):
                     }
                     
                     // タイムライン更新
-                    if (data.daily_sales) {
-                        const timeline = data.daily_sales.map(item => ({
-                            period: item.sales_date || item.date || '',
-                            total_amount: item.total_amount || 0,
-                            quantity: item.quantity || item.order_count || 0,
-                            orders_count: item.order_count || item.orders_count || 0
-                        }));
-                        updateTimelineTable(timeline);
+                    if (data.timeline) {
+                        updateTimelineTable(data.timeline);
                     }
                 }
             } catch (error) {
