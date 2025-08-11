@@ -548,25 +548,18 @@ async def sales_dashboard(
         # 商品別集約
         product_sales = {}
         for item in all_sales:
-            product_code = item.get('product_code', 'unknown')
+            rakuten_sku = item.get('rakuten_item_number', 'unknown')
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
             
-            # マッピングシステムを使用して商品名を取得
+            # 楽天SKUから商品名を取得
             product_name = ''
-            choice_code = item.get('choice_code', '') or ''
             common_code = ''
             
-            # デバッグ情報（一時的）
-            if 'CM016' in str(item) or product_code == '10003':
-                logger.info(f"CM016デバッグ - item keys: {list(item.keys())}")
-                logger.info(f"CM016デバッグ - product_code: {product_code}, choice_code: {choice_code}")
-                logger.info(f"CM016デバッグ - product_name in item: {item.get('product_name', 'NOT_FOUND')}")
-            
             try:
-                # Step 1: product_codeからcommon_codeを取得
-                if product_code != 'unknown':
-                    pm_result = supabase.table("product_master").select("common_code").eq("rakuten_sku", product_code).execute()
+                # Step 1: 楽天SKUからcommon_codeを取得
+                if rakuten_sku != 'unknown':
+                    pm_result = supabase.table("product_master").select("common_code").eq("rakuten_sku", rakuten_sku).execute()
                     if pm_result.data and pm_result.data[0].get('common_code'):
                         common_code = pm_result.data[0]['common_code']
                 
@@ -576,20 +569,17 @@ async def sales_dashboard(
                     if ccm_result.data and ccm_result.data[0].get('product_name'):
                         product_name = ccm_result.data[0]['product_name']
                 
-                # Step 3: 最終フォールバック
+                # フォールバック
                 if not product_name:
-                    if common_code:
-                        product_name = f"商品_{common_code}"
-                    else:
-                        product_name = item.get('product_name', '') or f"商品_{product_code}"
+                    product_name = item.get('product_name', '') or f"商品_{rakuten_sku}"
                     
             except Exception:
-                # エラー時のフォールバック
-                product_name = item.get('product_name', '') or f"商品_{product_code}"
+                product_name = item.get('product_name', '') or f"商品_{rakuten_sku}"
             
-            if product_code not in product_sales:
-                product_sales[product_code] = {
-                    "product_code": product_code,
+            if rakuten_sku not in product_sales:
+                product_sales[rakuten_sku] = {
+                    "product_code": rakuten_sku,
+                    "common_code": common_code,
                     "product_name": product_name,
                     "total_amount": 0,
                     "quantity": 0,
@@ -597,10 +587,10 @@ async def sales_dashboard(
                     "order_count": 0
                 }
             
-            product_sales[product_code]["total_amount"] += amount
-            product_sales[product_code]["quantity"] += quantity
-            product_sales[product_code]["orders_count"] += 1
-            product_sales[product_code]["order_count"] += 1
+            product_sales[rakuten_sku]["total_amount"] += amount
+            product_sales[rakuten_sku]["quantity"] += quantity
+            product_sales[rakuten_sku]["orders_count"] += 1
+            product_sales[rakuten_sku]["order_count"] += 1
         
         # 平均価格計算
         for product in product_sales.values():
