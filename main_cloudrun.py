@@ -484,10 +484,19 @@ async def sales_dashboard(
         all_response = query.execute()
         all_sales = all_response.data if all_response.data else []
         
-        # 統計計算
+        # 統計計算（安全な処理）
         total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
         total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
-        unique_orders = len(set(item.get('orders', {}).get('id') for item in all_sales if item.get('orders', {}).get('id')))
+        
+        # ordersフィールドのNone対応
+        order_ids = set()
+        for item in all_sales:
+            orders_data = item.get('orders')
+            if orders_data and isinstance(orders_data, dict):
+                order_id = orders_data.get('id')
+                if order_id:
+                    order_ids.add(order_id)
+        unique_orders = len(order_ids)
         
         # 商品別集約
         product_sales = {}
