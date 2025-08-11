@@ -2925,6 +2925,95 @@ async def get_sales_summary(
             'message': str(e)
         }
 
+@app.get("/api/sales/ranking")
+async def get_sales_ranking(
+    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)"),
+    limit: int = Query(20, description="表示件数")
+):
+    """
+    売上ランキング
+    売上高・数量・注文数でランキング表示
+    """
+    try:
+        # デフォルト期間設定
+        if not end_date:
+            end_date = datetime.now().strftime('%Y-%m-%d')
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+        
+        # 商品別売上データ取得（既存のget_product_salesエンドポイントと同じロジック）
+        query = supabase.table("order_items").select(
+            "*",
+            "orders!inner(created_at)"
+        )
+        query = query.gte("orders.created_at", start_date)
+        query = query.lte("orders.created_at", end_date)
+        
+        response = query.execute()
+        items = response.data if response.data else []
+        
+        # 商品別集計
+        product_sales = {}
+        
+        for item in items:
+            product_code = item.get('product_code', 'unknown')
+            product_name = item.get('product_name', '')
+            quantity = int(item.get('quantity', 0))
+            price = float(item.get('price', 0))
+            total_amount = quantity * price
+            
+            if product_code not in product_sales:
+                product_sales[product_code] = {
+                    'product_code': product_code,
+                    'product_name': product_name,
+                    'quantity': 0,
+                    'total_amount': 0,
+                    'orders_count': 0,
+                    'order_ids': set()
+                }
+            
+            product_sales[product_code]['quantity'] += quantity
+            product_sales[product_code]['total_amount'] += total_amount
+            
+            # 注文IDを取得してユニーク注文数をカウント
+            orders_data = item.get('orders', {})
+            if orders_data and isinstance(orders_data, dict):
+                order_id = orders_data.get('id') or item.get('order_id')
+                if order_id:
+                    product_sales[product_code]['order_ids'].add(order_id)
+        
+        # setをリストに変換し、注文数を設定
+        products = []
+        for product_data in product_sales.values():
+            product_data['orders_count'] = len(product_data['order_ids'])
+            del product_data['order_ids']  # setは JSON serializable でないため削除
+            products.append(product_data)
+        
+        # ランキング作成（上位limit件）
+        rankings = {
+            'by_amount': sorted(products, key=lambda x: x['total_amount'], reverse=True)[:limit],
+            'by_quantity': sorted(products, key=lambda x: x['quantity'], reverse=True)[:limit],
+            'by_orders': sorted(products, key=lambda x: x['orders_count'], reverse=True)[:limit]
+        }
+        
+        return {
+            'status': 'success',
+            'period': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'days': (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days + 1
+            },
+            'rankings': rankings
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_sales_ranking: {str(e)}")
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+
 # ===== 新規: プラットフォーム別売上集計API =====
 @app.get("/api/sales/platform_summary")
 async def platform_sales_summary(
