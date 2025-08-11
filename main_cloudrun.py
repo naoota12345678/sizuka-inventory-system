@@ -3513,12 +3513,49 @@ async def sales_dashboard(request: Request):
         }
 
         function updateSummary(summary) {
-            const safeNumber = (value) => Number(value) || 0;
-            // 呼び出し側から正しいフィールド名で渡されるので、それをそのまま使用
-            document.getElementById('totalSales').textContent = safeNumber(summary?.total_sales || 0).toLocaleString();
-            document.getElementById('totalQuantity').textContent = safeNumber(summary?.total_quantity || 0).toLocaleString();
-            document.getElementById('totalOrders').textContent = safeNumber(summary?.total_orders || 0).toLocaleString();
-            document.getElementById('uniqueProducts').textContent = safeNumber(summary?.unique_products || 0).toLocaleString();
+            console.log('updateSummary called with:', summary);
+            try {
+                const safeNumber = (value) => {
+                    const num = Number(value) || 0;
+                    console.log('safeNumber input:', value, '-> output:', num);
+                    return num;
+                };
+                
+                // 各要素を個別にエラーハンドリング
+                try {
+                    const totalSales = safeNumber(summary?.total_sales || 0);
+                    document.getElementById('totalSales').textContent = totalSales.toLocaleString();
+                } catch (e) { 
+                    console.error('totalSales error:', e);
+                    document.getElementById('totalSales').textContent = '0';
+                }
+                
+                try {
+                    const totalQuantity = safeNumber(summary?.total_quantity || 0);
+                    document.getElementById('totalQuantity').textContent = totalQuantity.toLocaleString();
+                } catch (e) { 
+                    console.error('totalQuantity error:', e);
+                    document.getElementById('totalQuantity').textContent = '0';
+                }
+                
+                try {
+                    const totalOrders = safeNumber(summary?.total_orders || 0);
+                    document.getElementById('totalOrders').textContent = totalOrders.toLocaleString();
+                } catch (e) { 
+                    console.error('totalOrders error:', e);
+                    document.getElementById('totalOrders').textContent = '0';
+                }
+                
+                try {
+                    const uniqueProducts = safeNumber(summary?.unique_products || 0);
+                    document.getElementById('uniqueProducts').textContent = uniqueProducts.toLocaleString();
+                } catch (e) { 
+                    console.error('uniqueProducts error:', e);
+                    document.getElementById('uniqueProducts').textContent = '0';
+                }
+            } catch (error) {
+                console.error('updateSummary error:', error);
+            }
         }
 
         function updateProductsTable(products) {
