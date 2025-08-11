@@ -669,8 +669,9 @@
                 const salesData = await salesResponse.json();
                 
                 if (salesData.status === 'success' && salesData.summary) {
+                    const totalSales = salesData.summary.total_amount || salesData.summary.total_sales || 0;
                     document.getElementById('todaySales').textContent = 
-                        `¥${salesData.summary.total_sales.toLocaleString()}`;
+                        `¥${totalSales.toLocaleString()}`;
                 }
                 
                 // 在庫アラート取得
@@ -879,7 +880,7 @@
                 html += '<div class="dashboard-grid" style="margin-bottom: 20px;">';
                 html += `<div class="dashboard-card">
                     <h3>合計売上</h3>
-                    <div class="value">¥${data.summary.total_sales.toLocaleString()}</div>
+                    <div class="value">¥${(data.summary.total_amount || data.summary.total_sales || 0).toLocaleString()}</div>
                     <div class="sub-info">期間: ${data.summary.period_days}日間</div>
                 </div>`;
                 html += `<div class="dashboard-card">
@@ -900,7 +901,7 @@
                     html += `<tr>
                         <td>${product.product_code}</td>
                         <td>${product.product_name}</td>
-                        <td>¥${product.total_sales.toLocaleString()}</td>
+                        <td>¥${(product.total_amount || product.total_sales || 0).toLocaleString()}</td>
                         <td>${product.total_units}</td>
                     </tr>`;
                 });
