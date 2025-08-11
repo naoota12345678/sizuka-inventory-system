@@ -42,14 +42,43 @@ jobs:
         GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       run: |
         python -c "
-        import asyncio
-        from main import app
+        from datetime import datetime, timedelta, timezone
         from api.rakuten_api import RakutenAPI
+        from core.database import Database
         
-        async def sync():
-            api = RakutenAPI()
-            orders = await api.sync_recent_orders(days=1)
-            print(f'同期完了: {len(orders)}件')
+        def sync_orders():
+            try:
+                # 昨日の注文データを取得
+                end_date = datetime.now(timezone.utc)
+                start_date = end_date - timedelta(days=1)
+                
+                api = RakutenAPI()
+                print(f'楽天注文同期開始: {start_date.date()} - {end_date.date()}')
+                
+                # 注文データ取得
+                orders = api.get_orders(start_date, end_date)
+                print(f'取得注文数: {len(orders)}件')
+                
+                if orders:
+                    # データベースに保存
+                    db = Database()
+                    saved_count = 0
+                    for order in orders:
+                        try:
+                            api.save_to_supabase(order)
+                            saved_count += 1
+                        except Exception as e:
+                            print(f'注文保存エラー: {e}')
+                    
+                    print(f'同期完了: {saved_count}/{len(orders)}件保存')
+                else:
+                    print('新規注文データなし')
+                    
+            except Exception as e:
+                print(f'同期エラー: {e}')
+                import traceback
+                traceback.print_exc()
+                raise
         
-        asyncio.run(sync())
+        sync_orders()
         "
