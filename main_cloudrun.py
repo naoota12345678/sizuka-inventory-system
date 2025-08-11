@@ -546,6 +546,29 @@ async def sales_dashboard(
         if not start_date:
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
+        # マッピングデータを事前に一括取得（パフォーマンス改善）
+        choice_mapping_response = supabase.table("choice_code_mapping").select("*").execute()
+        product_master_response = supabase.table("product_master").select("*").execute()
+        
+        # メモリ内辞書に変換（高速検索用）
+        choice_map = {}
+        if choice_mapping_response.data:
+            for item in choice_mapping_response.data:
+                if item.get('choice_info') and item['choice_info'].get('choice_code'):
+                    choice_map[item['choice_info']['choice_code']] = {
+                        'product_name': item.get('product_name', ''),
+                        'common_code': item.get('common_code', '')
+                    }
+        
+        product_map = {}
+        if product_master_response.data:
+            for item in product_master_response.data:
+                if item.get('rakuten_sku'):
+                    product_map[item['rakuten_sku']] = {
+                        'product_name': item.get('product_name', ''),
+                        'common_code': item.get('common_code', '')
+                    }
+        
         # 2段階クエリ：期間フィルタリングの確実な実行
         # 1. 期間内のordersを取得
         orders_query = supabase.table('orders').select('id, order_date').gte('order_date', start_date).lte('order_date', end_date)
@@ -576,56 +599,24 @@ async def sales_dashboard(
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
             
-            # 商品名とcommon_codeを取得（CLAUDE.mdに記載のロジック）
+            # 商品名とcommon_codeを取得（メモリ内辞書から高速検索）
             product_name = ''
             common_code = ''
             choice_code = item.get('choice_code', '') or ''
             product_code = item.get('product_code', 'unknown')
             
-            try:
-                # デバッグ出力（一時的）
-                print(f"DEBUG: product_code={product_code}, choice_code={choice_code}, rakuten_sku={rakuten_sku}")
-                
-                # 優先順位1: choice_codeがある場合、choice_code_mappingから検索
-                if choice_code:
-                    ccm_result = supabase.table("choice_code_mapping").select(
-                        "product_name, common_code"
-                    ).eq("choice_info->>choice_code", choice_code).execute()
-                    
-                    if ccm_result.data and ccm_result.data[0].get('product_name'):
-                        product_name = ccm_result.data[0]['product_name']
-                        common_code = ccm_result.data[0].get('common_code', '')
-                        print(f"DEBUG: Found by choice_code: {product_name}, {common_code}")
-                
-                # 優先順位2: product_codeでproduct_masterから検索
-                if not product_name and product_code != 'unknown':
-                    pm_result = supabase.table("product_master").select(
-                        "product_name, common_code"
-                    ).eq("rakuten_sku", product_code).execute()
-                    
-                    if pm_result.data and pm_result.data[0].get('product_name'):
-                        product_name = pm_result.data[0]['product_name']
-                        common_code = pm_result.data[0].get('common_code', '')
-                        print(f"DEBUG: Found by product_code: {product_name}, {common_code}")
-                
-                # 優先順位3: rakuten_item_numberでproduct_masterから検索
-                if not product_name and rakuten_sku != 'unknown':
-                    pm_result = supabase.table("product_master").select(
-                        "product_name, common_code"
-                    ).eq("rakuten_sku", rakuten_sku).execute()
-                    
-                    if pm_result.data and pm_result.data[0].get('product_name'):
-                        product_name = pm_result.data[0]['product_name']
-                        common_code = pm_result.data[0].get('common_code', '')
-                        print(f"DEBUG: Found by rakuten_sku: {product_name}, {common_code}")
-                
-                # フォールバック: order_itemsのproduct_nameを使用
-                if not product_name:
-                    product_name = item.get('product_name', '') or f"商品_{product_code}"
-                    print(f"DEBUG: Using fallback: {product_name}")
-                    
-            except Exception as e:
-                print(f"DEBUG: Error in mapping: {e}")
+            # 優先順位1: choice_codeがある場合、メモリ内辞書から検索
+            if choice_code and choice_code in choice_map:
+                product_name = choice_map[choice_code]['product_name']
+                common_code = choice_map[choice_code]['common_code']
+            
+            # 優先順位2: product_codeでメモリ内辞書から検索
+            if not product_name and product_code != 'unknown' and product_code in product_map:
+                product_name = product_map[product_code]['product_name']
+                common_code = product_map[product_code]['common_code']
+            
+            # フォールバック: order_itemsのproduct_nameを使用
+            if not product_name:
                 product_name = item.get('product_name', '') or f"商品_{product_code}"
             
             if rakuten_sku not in product_sales:
