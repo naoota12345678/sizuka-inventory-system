@@ -345,7 +345,7 @@ async def search_sales(
         start_date = end_date - timedelta(days=days)
         
         # 基本クエリ
-        query = supabase.table('order_items').select('*')
+        query = supabase.table('order_items').select('*, orders!inner(order_date, created_at, id)')
         
         # 日付フィルター
         query = query.gte('orders.order_date', str(start_date))
@@ -403,26 +403,45 @@ async def search_sales(
             # マッピングシステムを使用して商品名を取得
             product_name = ''
             choice_code = item.get('choice_code', '') or ''
+            common_code = ''
             
             try:
-                # 1. choice_codeがある場合、choice_code_mappingから検索
+                # Step 1: 共通コードを取得
+                # 1-a. choice_codeがある場合、choice_code_mappingから共通コードを取得
                 if choice_code:
                     ccm_result = supabase.table("choice_code_mapping").select("product_name, common_code").eq("choice_info->>choice_code", choice_code).execute()
-                    if ccm_result.data and ccm_result.data[0].get('product_name'):
-                        product_name = ccm_result.data[0]['product_name']
+                    if ccm_result.data and ccm_result.data[0].get('common_code'):
+                        common_code = ccm_result.data[0]['common_code']
+                        product_name = ccm_result.data[0].get('product_name', '')
                 
-                # 2. choice_codeで見つからない場合、product_codeでproduct_masterから検索
-                if not product_name and code != 'unknown':
+                # 1-b. choice_codeで見つからない場合、product_codeでproduct_masterから共通コードを取得
+                if not common_code and code != 'unknown':
                     pm_result = supabase.table("product_master").select("product_name, common_code").eq("rakuten_sku", code).execute()
-                    if pm_result.data and pm_result.data[0].get('product_name'):
-                        product_name = pm_result.data[0]['product_name']
+                    if pm_result.data and pm_result.data[0].get('common_code'):
+                        common_code = pm_result.data[0]['common_code']
+                        product_name = pm_result.data[0].get('product_name', '')
                 
-                # 3. 上記で見つからない場合はorder_itemsのproduct_nameを使用
+                # Step 2: 共通コードがあるが商品名が空の場合、商品名を補完
+                if common_code and not product_name:
+                    # product_masterから商品名を検索
+                    pm_name_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
+                    if pm_name_result.data and pm_name_result.data[0].get('product_name'):
+                        product_name = pm_name_result.data[0]['product_name']
+                    else:
+                        # choice_code_mappingから商品名を検索（フォールバック）
+                        ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
+                        if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
+                            product_name = ccm_name_result.data[0]['product_name']
+                
+                # Step 3: 最終フォールバック
                 if not product_name:
-                    product_name = item.get('product_name', '') or f"商品_{code}"
+                    if common_code:
+                        product_name = f"商品_{common_code}"
+                    else:
+                        product_name = item.get('product_name', '') or f"商品_{code}"
                     
             except Exception:
-                # エラー時はorder_itemsのproduct_nameまたはデフォルト名を使用
+                # エラー時のフォールバック
                 product_name = item.get('product_name', '') or f"商品_{code}"
             
             if code not in product_summary:
@@ -513,7 +532,7 @@ async def sales_dashboard(
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
         # order_itemsから売上データを取得（ordersテーブルと結合して注文日でフィルタ）
-        query = supabase.table('order_items').select('*').gte('orders.order_date', start_date).lte('orders.order_date', end_date)
+        query = supabase.table('order_items').select('*, orders!inner(order_date, created_at, id)').gte('orders.order_date', start_date).lte('orders.order_date', end_date)
         
         all_response = query.execute()
         all_sales = all_response.data if all_response.data else []
@@ -539,29 +558,48 @@ async def sales_dashboard(
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
             
-            # マッピングシステムを使用して共通コードから商品名を取得
+            # マッピングシステムを使用して商品名を取得
             product_name = ''
             choice_code = item.get('choice_code', '') or ''
+            common_code = ''
             
             try:
-                # 1. choice_codeがある場合、choice_code_mappingから検索
+                # Step 1: 共通コードを取得
+                # 1-a. choice_codeがある場合、choice_code_mappingから共通コードを取得
                 if choice_code:
                     ccm_result = supabase.table("choice_code_mapping").select("product_name, common_code").eq("choice_info->>choice_code", choice_code).execute()
-                    if ccm_result.data and ccm_result.data[0].get('product_name'):
-                        product_name = ccm_result.data[0]['product_name']
+                    if ccm_result.data and ccm_result.data[0].get('common_code'):
+                        common_code = ccm_result.data[0]['common_code']
+                        product_name = ccm_result.data[0].get('product_name', '')
                 
-                # 2. choice_codeで見つからない場合、product_codeでproduct_masterから検索
-                if not product_name and product_code != 'unknown':
+                # 1-b. choice_codeで見つからない場合、product_codeでproduct_masterから共通コードを取得
+                if not common_code and product_code != 'unknown':
                     pm_result = supabase.table("product_master").select("product_name, common_code").eq("rakuten_sku", product_code).execute()
-                    if pm_result.data and pm_result.data[0].get('product_name'):
-                        product_name = pm_result.data[0]['product_name']
+                    if pm_result.data and pm_result.data[0].get('common_code'):
+                        common_code = pm_result.data[0]['common_code']
+                        product_name = pm_result.data[0].get('product_name', '')
                 
-                # 3. 上記で見つからない場合はorder_itemsのproduct_nameを使用
+                # Step 2: 共通コードがあるが商品名が空の場合、商品名を補完
+                if common_code and not product_name:
+                    # product_masterから商品名を検索
+                    pm_name_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
+                    if pm_name_result.data and pm_name_result.data[0].get('product_name'):
+                        product_name = pm_name_result.data[0]['product_name']
+                    else:
+                        # choice_code_mappingから商品名を検索（フォールバック）
+                        ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
+                        if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
+                            product_name = ccm_name_result.data[0]['product_name']
+                
+                # Step 3: 最終フォールバック
                 if not product_name:
-                    product_name = item.get('product_name', '') or f"商品_{product_code}"
+                    if common_code:
+                        product_name = f"商品_{common_code}"
+                    else:
+                        product_name = item.get('product_name', '') or f"商品_{product_code}"
                     
             except Exception:
-                # エラー時はorder_itemsのproduct_nameまたはデフォルト名を使用
+                # エラー時のフォールバック
                 product_name = item.get('product_name', '') or f"商品_{product_code}"
             
             if product_code not in product_sales:
