@@ -3514,7 +3514,8 @@ async def sales_dashboard(request: Request):
 
         function updateSummary(summary) {
             const safeNumber = (value) => Number(value) || 0;
-            document.getElementById('totalSales').textContent = safeNumber(summary?.total_sales).toLocaleString();
+            // 実際のAPIレスポンス構造に完全対応
+            document.getElementById('totalSales').textContent = safeNumber(summary?.total_amount || summary?.total_sales).toLocaleString();
             document.getElementById('totalQuantity').textContent = safeNumber(summary?.total_quantity).toLocaleString();
             document.getElementById('totalOrders').textContent = safeNumber(summary?.total_orders).toLocaleString();
             document.getElementById('uniqueProducts').textContent = safeNumber(summary?.unique_products).toLocaleString();
