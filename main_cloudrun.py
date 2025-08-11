@@ -421,17 +421,11 @@ async def search_sales(
                         common_code = pm_result.data[0]['common_code']
                         product_name = pm_result.data[0].get('product_name', '')
                 
-                # Step 2: 共通コードがあるが商品名が空の場合、商品名を補完
+                # Step 2: 共通コードから商品名を取得（choice_code_mappingのみ）
                 if common_code and not product_name:
-                    # choice_code_mappingから商品名を検索（優先）
                     ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
                     if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
                         product_name = ccm_name_result.data[0]['product_name']
-                    else:
-                        # product_masterから商品名を検索（フォールバック）
-                        pm_name_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
-                        if pm_name_result.data and pm_name_result.data[0].get('product_name'):
-                            product_name = pm_name_result.data[0]['product_name']
                 
                 # Step 3: 最終フォールバック
                 if not product_name:
@@ -594,17 +588,11 @@ async def sales_dashboard(
                         if product_code == '10003':
                             logger.info(f"10003デバッグ - found common_code: {common_code}, product_name: {product_name}")
                 
-                # Step 2: 共通コードがあるが商品名が空の場合、商品名を補完
+                # Step 2: 共通コードから商品名を取得（choice_code_mappingのみ）
                 if common_code and not product_name:
-                    # choice_code_mappingから商品名を検索（優先）
                     ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
                     if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
                         product_name = ccm_name_result.data[0]['product_name']
-                    else:
-                        # product_masterから商品名を検索（フォールバック）
-                        pm_name_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
-                        if pm_name_result.data and pm_name_result.data[0].get('product_name'):
-                            product_name = pm_name_result.data[0]['product_name']
                 
                 # Step 3: 最終フォールバック
                 if not product_name:
