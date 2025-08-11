@@ -263,6 +263,12 @@ async def get_inventory_list(
         end_idx = start_idx + per_page
         page_items = all_items[start_idx:end_idx]
         
+        # サマリー情報を計算
+        total_products = len(all_items)
+        low_stock_count = len([item for item in all_items if item.get('current_stock', 0) <= item.get('minimum_stock', 0)])
+        out_of_stock_count = len([item for item in all_items if item.get('current_stock', 0) == 0])
+        normal_stock_count = total_products - low_stock_count
+        
         return {
             "status": "success",
             "pagination": {
@@ -270,6 +276,12 @@ async def get_inventory_list(
                 "per_page": per_page,
                 "total_items": len(all_items),
                 "total_pages": (len(all_items) + per_page - 1) // per_page
+            },
+            "summary": {
+                "total_products": total_products,
+                "normal_stock": normal_stock_count,
+                "low_stock": low_stock_count,
+                "out_of_stock": out_of_stock_count
             },
             "items": page_items,
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
