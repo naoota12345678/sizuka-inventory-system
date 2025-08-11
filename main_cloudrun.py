@@ -241,15 +241,20 @@ async def get_inventory_list(
     page: Optional[int] = Query(1, description="ページ番号"),
     per_page: Optional[int] = Query(50, description="1ページあたりの件数"),
     sort_by: Optional[str] = Query("common_code", description="ソート項目"),
-    sort_order: Optional[str] = Query("asc", description="ソート順序 (asc/desc)")
+    sort_order: Optional[str] = Query("asc", description="ソート順序 (asc/desc)"),
+    include_negative: Optional[bool] = Query(True, description="マイナス在庫も含める")
 ):
-    """在庫一覧取得API"""
+    """在庫一覧取得API（商品名付き、マイナス在庫対応）"""
     try:
         if not supabase:
             return {"error": "Database connection not configured"}
         
         # 基本クエリ
         query = supabase.table('inventory').select('*')
+        
+        # マイナス在庫フィルター（デフォルトで含める）
+        if not include_negative:
+            query = query.gte('current_stock', 0)
         
         # ソート設定
         query = query.order(sort_by, desc=(sort_order == 'desc'))
@@ -258,30 +263,57 @@ async def get_inventory_list(
         all_response = query.execute()
         all_items = all_response.data if all_response.data else []
         
+        # 商品名を付加する処理
+        enhanced_items = []
+        for item in all_items:
+            common_code = item.get('common_code', '')
+            product_name = item.get('product_name', '')
+            
+            # 商品名が空の場合、product_masterまたはchoice_code_mappingから取得
+            if not product_name and common_code:
+                # 1. product_masterから検索
+                pm_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
+                if pm_result.data and pm_result.data[0].get('product_name'):
+                    product_name = pm_result.data[0]['product_name']
+                else:
+                    # 2. choice_code_mappingから検索（フォールバック）
+                    ccm_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
+                    if ccm_result.data and ccm_result.data[0].get('product_name'):
+                        product_name = ccm_result.data[0]['product_name']
+                    else:
+                        product_name = f"商品_{common_code}"  # デフォルト名
+            
+            # アイテムデータを拡張
+            enhanced_item = item.copy()
+            enhanced_item['product_name'] = product_name
+            enhanced_items.append(enhanced_item)
+        
         # ページネーション
         start_idx = (page - 1) * per_page
         end_idx = start_idx + per_page
-        page_items = all_items[start_idx:end_idx]
+        page_items = enhanced_items[start_idx:end_idx]
         
-        # サマリー情報を計算
-        total_products = len(all_items)
-        low_stock_count = len([item for item in all_items if item.get('current_stock', 0) <= item.get('minimum_stock', 0)])
-        out_of_stock_count = len([item for item in all_items if item.get('current_stock', 0) == 0])
-        normal_stock_count = total_products - low_stock_count
+        # サマリー情報を計算（マイナス在庫も考慮）
+        total_products = len(enhanced_items)
+        negative_stock_count = len([item for item in enhanced_items if item.get('current_stock', 0) < 0])
+        out_of_stock_count = len([item for item in enhanced_items if item.get('current_stock', 0) == 0])
+        low_stock_count = len([item for item in enhanced_items if 0 < item.get('current_stock', 0) <= item.get('minimum_stock', 0)])
+        normal_stock_count = total_products - negative_stock_count - out_of_stock_count - low_stock_count
         
         return {
             "status": "success",
             "pagination": {
                 "page": page,
                 "per_page": per_page,
-                "total_items": len(all_items),
-                "total_pages": (len(all_items) + per_page - 1) // per_page
+                "total_items": len(enhanced_items),
+                "total_pages": (len(enhanced_items) + per_page - 1) // per_page
             },
             "summary": {
                 "total_products": total_products,
                 "normal_stock": normal_stock_count,
                 "low_stock": low_stock_count,
-                "out_of_stock": out_of_stock_count
+                "out_of_stock": out_of_stock_count,
+                "negative_stock": negative_stock_count
             },
             "items": page_items,
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
