@@ -546,19 +546,13 @@ async def sales_dashboard(
         if not start_date:
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
-        # order_itemsから売上データを取得
-        # まずorder_itemsを全て取得してから、Pythonでフィルタリング
-        query = supabase.table('order_items').select('*, orders(order_date, created_at, id)')
+        # order_itemsから売上データを取得（期間限定で直接フィルタリング）
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, choice_code, orders(order_date, id)'
+        ).gte('orders.order_date', start_date).lte('orders.order_date', end_date).limit(1000)
         response = query.execute()
         
-        # 日付でフィルタリング
-        all_sales = []
-        if response.data:
-            for item in response.data:
-                if item.get('orders') and item['orders'].get('order_date'):
-                    order_date = item['orders']['order_date']
-                    if start_date <= order_date <= end_date:
-                        all_sales.append(item)
+        all_sales = response.data if response.data else []
         
         # 統計計算（安全な処理）
         total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
