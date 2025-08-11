@@ -407,11 +407,24 @@ async def search_sales(
                     'product_code': code,
                     'product_name': item.get('product_name', '') or '',
                     'total_quantity': 0,
-                    'total_amount': 0.0
+                    'quantity': 0,  # フロントエンド互換性
+                    'total_amount': 0.0,
+                    'orders_count': 0,  # フロントエンド互換性
+                    'order_count': 0
                 }
             
             product_summary[code]['total_quantity'] += quantity
+            product_summary[code]['quantity'] += quantity  # フロントエンド互換性
             product_summary[code]['total_amount'] += price * quantity
+            product_summary[code]['orders_count'] += 1  # フロントエンド互換性
+            product_summary[code]['order_count'] += 1
+        
+        # 平均価格計算
+        for product in product_summary.values():
+            if product['quantity'] > 0:
+                product['average_price'] = product['total_amount'] / product['quantity']
+            else:
+                product['average_price'] = 0
         
         # ソート（売上金額順）
         sorted_products = sorted(product_summary.values(), key=lambda x: x['total_amount'], reverse=True)
