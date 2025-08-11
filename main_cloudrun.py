@@ -3483,31 +3483,28 @@ async def sales_dashboard(request: Request):
             
             // 売上データ取得
             try {
-                const response = await fetch(`${window.location.origin}/api/sales_search?days=${days}`);
+                const response = await fetch(`${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`);
                 const data = await response.json();
                 
                 if (data.status === 'success') {
                     // サマリー更新
-                    const summary = data.summary || {};
                     updateSummary({
-                        total_sales: summary.total_amount || 0,
-                        total_quantity: 0, // sales_searchには個数情報がない
-                        total_orders: summary.total_orders || 0,
-                        unique_products: (data.daily_sales ? data.daily_sales.length : 0)
+                        total_sales: data.total_amount || 0,
+                        total_quantity: data.total_quantity || 0,
+                        total_orders: data.total_orders || 0,
+                        unique_products: data.unique_products || 0
                     });
                     
-                    // 商品テーブルは空（このAPIには商品別データなし）
-                    updateProductsTable([]);
+                    // 商品テーブル更新
+                    if (data.products && Array.isArray(data.products)) {
+                        updateProductsTable(data.products);
+                    } else {
+                        updateProductsTable([]);
+                    }
                     
-                    // タイムライン更新（daily_salesを使用）
-                    if (data.daily_sales && Array.isArray(data.daily_sales)) {
-                        const timeline = data.daily_sales.map(item => ({
-                            period: item.sales_date || '',
-                            total_amount: item.total_amount || 0,
-                            quantity: 0, // このAPIには個数情報がない
-                            orders_count: item.order_count || 0
-                        }));
-                        updateTimelineTable(timeline);
+                    // タイムライン更新（period_salesを使用）
+                    if (data.period_sales && Array.isArray(data.period_sales)) {
+                        updateTimelineTable(data.period_sales);
                     } else {
                         updateTimelineTable([]);
                     }
