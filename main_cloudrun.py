@@ -563,6 +563,12 @@ async def sales_dashboard(
             choice_code = item.get('choice_code', '') or ''
             common_code = ''
             
+            # デバッグ情報（一時的）
+            if 'CM016' in str(item) or product_code == '10003':
+                logger.info(f"CM016デバッグ - item keys: {list(item.keys())}")
+                logger.info(f"CM016デバッグ - product_code: {product_code}, choice_code: {choice_code}")
+                logger.info(f"CM016デバッグ - product_name in item: {item.get('product_name', 'NOT_FOUND')}")
+            
             try:
                 # Step 1: 共通コードを取得
                 # 1-a. choice_codeがある場合、choice_code_mappingから共通コードを取得
@@ -575,9 +581,18 @@ async def sales_dashboard(
                 # 1-b. choice_codeで見つからない場合、product_codeでproduct_masterから共通コードを取得
                 if not common_code and product_code != 'unknown':
                     pm_result = supabase.table("product_master").select("product_name, common_code").eq("rakuten_sku", product_code).execute()
+                    
+                    # デバッグ情報（一時的）
+                    if product_code == '10003':
+                        logger.info(f"10003デバッグ - pm_result: {pm_result.data}")
+                    
                     if pm_result.data and pm_result.data[0].get('common_code'):
                         common_code = pm_result.data[0]['common_code']
                         product_name = pm_result.data[0].get('product_name', '')
+                        
+                        # デバッグ情報（一時的）
+                        if product_code == '10003':
+                            logger.info(f"10003デバッグ - found common_code: {common_code}, product_name: {product_name}")
                 
                 # Step 2: 共通コードがあるが商品名が空の場合、商品名を補完
                 if common_code and not product_name:

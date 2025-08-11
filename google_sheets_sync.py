@@ -36,11 +36,20 @@ def fetch_google_sheet_data(sheet_name):
             
         logger.info(f"Fetching data from Google Sheets: {sheet_name}")
         
+        # Google Sheetsのgzip圧縮されたUTF-8レスポンスを正しく処理
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         
+        # requestsが自動的にgzipを展開し、UTF-8として解釈
+        # 但し、場合によっては文字エンコーディングが不正確な場合がある
+        if response.encoding != 'utf-8':
+            response.encoding = 'utf-8'
+        
+        content = response.text
+        logger.info(f"Content decoded with encoding: {response.encoding}")
+        
         # CSVデータを解析
-        csv_data = StringIO(response.text)
+        csv_data = StringIO(content)
         reader = csv.DictReader(csv_data)
         data = list(reader)
         
@@ -63,25 +72,42 @@ def sync_choice_code_mapping():
         logger.error("Failed to fetch choice mapping data")
         return False
     
+    # 列名の動的マッピング（文字化け対応）
+    if not sheet_data:
+        return False
+        
+    headers = list(sheet_data[0].keys())
+    logger.info(f"Available headers: {headers[:5]}")
+    
+    # 位置ベースの列マッピング（Google Sheetsの列順序に基づく）
+    # 順序: 連番, 共通コード, JAN/EAN, 基本商品名, 楽天SKU, ...
+    common_code_col = headers[1] if len(headers) > 1 else None
+    product_name_col = headers[3] if len(headers) > 3 else None
+    
+    if not common_code_col or not product_name_col:
+        logger.error("Required columns not found in the expected positions")
+        return False
+    
+    logger.info(f"Using columns: common_code='{common_code_col}', product_name='{product_name_col}'")
+    
     success_count = 0
     error_count = 0
     
     for row in sheet_data:
         try:
-            # Google Sheetsの列名に合わせて調整（実際の列名に応じて変更）
-            choice_code = row.get('選択肢コード') or row.get('choice_code', '').strip()
-            common_code = row.get('共通コード') or row.get('common_code', '').strip()
-            product_name = row.get('商品名') or row.get('product_name', '').strip()
+            # 位置ベースで列データを取得
+            common_code = row.get(common_code_col, '').strip()
+            product_name = row.get(product_name_col, '').strip()
             
-            if not choice_code or not common_code:
-                logger.warning(f"Skipping row with missing data: {row}")
+            if not common_code or not common_code.startswith('CM'):
                 continue
             
-            # choice_info (JSONB) フィールドの準備
+            # choice_info (JSONB) フィールドの準備  
+            # 実際の選択肢コードは楽天注文データから抽出されるため、ここではcommon_codeをplaceholderとして使用
             choice_info = {
-                "choice_code": choice_code,
+                "choice_code": common_code,  # placeholderとして使用
                 "description": product_name,
-                "category": "rakuten",
+                "category": "google_sheets_sync",
                 "sync_date": datetime.now(timezone.utc).isoformat()
             }
             
@@ -90,16 +116,16 @@ def sync_choice_code_mapping():
                 "choice_info": choice_info,
                 "common_code": common_code,
                 "product_name": product_name,
-                "rakuten_sku": choice_code,
+                "rakuten_sku": f"SHEETS_{common_code}",  # 識別用プレフィックス
                 "created_at": datetime.now(timezone.utc).isoformat()
             }
             
-            # 既存データの確認（choice_codeで検索）
-            existing = supabase.table("choice_code_mapping").select("id").contains("choice_info", {"choice_code": choice_code}).execute()
+            # 既存データの確認（common_codeで検索）
+            existing = supabase.table("choice_code_mapping").select("id").eq("common_code", common_code).execute()
             
             if existing.data:
                 # 更新
-                result = supabase.table("choice_code_mapping").update(mapping_data).eq("id", existing.data[0]["id"]).execute()
+                result = supabase.table("choice_code_mapping").update(mapping_data).eq("common_code", common_code).execute()
                 action = "UPDATED"
             else:
                 # 新規挿入
@@ -107,10 +133,10 @@ def sync_choice_code_mapping():
                 action = "CREATED"
             
             if result.data:
-                logger.info(f"   {action}: {choice_code} -> {common_code} ({product_name[:30]}...)")
+                logger.info(f"   {action}: {common_code} ({product_name[:30]}...)")
                 success_count += 1
             else:
-                logger.error(f"   FAILED: {choice_code}")
+                logger.error(f"   FAILED: {common_code}")
                 error_count += 1
                 
         except Exception as e:
