@@ -3663,6 +3663,103 @@ async def mapping_failures(limit: int = 50):
         logger.error(f"mapping failures error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
+@app.get("/api/sales_search")
+async def sales_search(
+    days: int = Query(7, description="過去何日間のデータを取得するか"),
+    platform: str = Query(None, description="プラットフォーム名でフィルター")
+):
+    """売上検索API - 指定期間の売上データを取得"""
+    try:
+        if not supabase:
+            return {"status": "error", "message": "Database connection not configured"}
+        
+        # 期間の計算
+        end_date = datetime.now(pytz.timezone('Asia/Tokyo')).date()
+        start_date = end_date - timedelta(days=days)
+        
+        # platform_daily_salesテーブルから売上データを取得
+        query = supabase.table('platform_daily_sales').select('*')
+        query = query.gte('sales_date', start_date.isoformat())
+        query = query.lte('sales_date', end_date.isoformat())
+        
+        if platform:
+            query = query.eq('platform', platform)
+        
+        query = query.order('sales_date', desc=True)
+        result = query.execute()
+        
+        if not result.data:
+            # データがない場合、ordersテーブルから集計
+            orders_query = supabase.table('orders').select(
+                'order_date, total_amount, platform'
+            ).gte('order_date', start_date.isoformat()).lte('order_date', end_date.isoformat())
+            
+            if platform:
+                orders_query = orders_query.eq('platform', platform)
+            
+            orders_result = orders_query.execute()
+            
+            # 日付別・プラットフォーム別に集計
+            daily_sales = {}
+            if orders_result.data:
+                for order in orders_result.data:
+                    order_date = order.get('order_date', '')[:10]
+                    platform_name = order.get('platform', 'unknown')
+                    amount = float(order.get('total_amount', 0))
+                    
+                    key = f"{order_date}_{platform_name}"
+                    if key not in daily_sales:
+                        daily_sales[key] = {
+                            'sales_date': order_date,
+                            'platform': platform_name,
+                            'total_amount': 0,
+                            'order_count': 0
+                        }
+                    daily_sales[key]['total_amount'] += amount
+                    daily_sales[key]['order_count'] += 1
+            
+            sales_data = list(daily_sales.values())
+        else:
+            sales_data = result.data
+        
+        # 統計情報の計算
+        total_amount = sum(float(item.get('total_amount', 0)) for item in sales_data)
+        total_orders = sum(int(item.get('order_count', 0)) for item in sales_data)
+        
+        # プラットフォーム別集計
+        platform_summary = {}
+        for item in sales_data:
+            p = item.get('platform', 'unknown')
+            if p not in platform_summary:
+                platform_summary[p] = {'amount': 0, 'count': 0}
+            platform_summary[p]['amount'] += float(item.get('total_amount', 0))
+            platform_summary[p]['count'] += int(item.get('order_count', 0))
+        
+        return {
+            "status": "success",
+            "period": {
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+                "days": days
+            },
+            "summary": {
+                "total_amount": round(total_amount, 2),
+                "total_orders": total_orders,
+                "average_per_day": round(total_amount / days, 2) if days > 0 else 0,
+                "platform_summary": platform_summary
+            },
+            "daily_sales": sales_data,
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Sales search error: {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e),
+            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
+        }
+
 @app.get("/inventory-dashboard-html")
 async def inventory_dashboard_html(request: Request):
     """
