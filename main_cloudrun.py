@@ -366,11 +366,15 @@ async def search_sales(
                 "total_amount": total_amount,
                 "total_sales": total_amount,  # フロントエンド互換性のため
                 "total_quantity": total_quantity,
+                "total_units": total_quantity,  # フロントエンド互換性のため
                 "total_orders": len(items),
                 "unique_products": len(product_summary),
-                "total_products": len(product_summary)  # フロントエンド互換性のため
+                "total_products": len(product_summary),  # フロントエンド互換性のため
+                "period_days": days,  # フロントエンド互換性のため
+                "avg_daily_sales": total_amount / days if days > 0 else 0  # フロントエンド互換性のため
             },
             "items": sorted_products[:20],  # トップ20商品
+            "top_products": sorted_products[:20],  # フロントエンド互換性のため
             "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
         }
         
