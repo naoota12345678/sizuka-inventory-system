@@ -3490,22 +3490,26 @@ async def sales_dashboard(request: Request):
                     // サマリー更新
                     const summary = data.summary || {};
                     updateSummary({
-                        total_sales: summary.total_sales || summary.total_amount || 0,
-                        total_quantity: summary.total_quantity || (data.items ? data.items.reduce((sum, item) => sum + (item.quantity || 0), 0) : 0),
+                        total_sales: summary.total_amount || 0,
+                        total_quantity: 0, // sales_searchには個数情報がない
                         total_orders: summary.total_orders || 0,
-                        unique_products: summary.unique_products || (data.items ? data.items.length : 0)
+                        unique_products: (data.daily_sales ? data.daily_sales.length : 0)
                     });
                     
-                    // 商品テーブル更新
-                    if (data.items) {
-                        updateProductsTable(data.items);
-                    } else if (data.top_products) {
-                        updateProductsTable(data.top_products);
-                    }
+                    // 商品テーブルは空（このAPIには商品別データなし）
+                    updateProductsTable([]);
                     
-                    // タイムライン更新
-                    if (data.timeline) {
-                        updateTimelineTable(data.timeline);
+                    // タイムライン更新（daily_salesを使用）
+                    if (data.daily_sales && Array.isArray(data.daily_sales)) {
+                        const timeline = data.daily_sales.map(item => ({
+                            period: item.sales_date || '',
+                            total_amount: item.total_amount || 0,
+                            quantity: 0, // このAPIには個数情報がない
+                            orders_count: item.order_count || 0
+                        }));
+                        updateTimelineTable(timeline);
+                    } else {
+                        updateTimelineTable([]);
                     }
                 }
             } catch (error) {
