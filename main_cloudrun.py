@@ -546,32 +546,33 @@ async def sales_dashboard(
         if not start_date:
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
-        # order_itemsから売上データを取得（期間限定で直接フィルタリング）
-        query = supabase.table('order_items').select(
-            'quantity, price, product_code, product_name, choice_code, orders(order_date, id)'
-        ).gte('orders.order_date', start_date).lte('orders.order_date', end_date).limit(1000)
-        response = query.execute()
+        # 2段階クエリ：期間フィルタリングの確実な実行
+        # 1. 期間内のordersを取得
+        orders_query = supabase.table('orders').select('id, order_date').gte('order_date', start_date).lte('order_date', end_date)
+        orders_response = orders_query.execute()
         
-        all_sales = response.data if response.data else []
+        if not orders_response.data:
+            # 該当期間にデータなし
+            all_sales = []
+        else:
+            # 2. 該当するorder_idsでorder_itemsを取得
+            order_ids = [order['id'] for order in orders_response.data]
+            items_query = supabase.table('order_items').select('*').in_('order_id', order_ids)
+            items_response = items_query.execute()
+            
+            all_sales = items_response.data if items_response.data else []
         
         # 統計計算（安全な処理）
         total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
         total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
         
-        # ordersフィールドのNone対応
-        order_ids = set()
-        for item in all_sales:
-            orders_data = item.get('orders')
-            if orders_data and isinstance(orders_data, dict):
-                order_id = orders_data.get('id')
-                if order_id:
-                    order_ids.add(order_id)
-        unique_orders = len(order_ids)
+        # 注文数計算（2段階クエリ対応）
+        unique_orders = len(orders_response.data) if orders_response.data else 0
         
         # 商品別集約
         product_sales = {}
         for item in all_sales:
-            rakuten_sku = item.get('rakuten_item_number', 'unknown')
+            rakuten_sku = item.get('product_code', 'unknown')
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
             
