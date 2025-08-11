@@ -848,11 +848,10 @@
                 const productSearch = document.getElementById('salesProductSearch').value;
                 const sortBy = document.getElementById('salesSort').value;
                 
-                let url = `${API_BASE}/sales_search?`;
+                let url = `${API_BASE}/sales_dashboard?`;
                 if (startDate) url += `start_date=${startDate}&`;
                 if (endDate) url += `end_date=${endDate}&`;
                 if (productSearch) url += `product_search=${encodeURIComponent(productSearch)}&`;
-                url += `sort_by=${sortBy}`;
                 
                 const response = await fetch(url);
                 const data = await response.json();
@@ -876,33 +875,37 @@
         function displaySalesResults(data) {
             let html = '<h3>売上分析結果</h3>';
             
-            if (data.summary) {
-                html += '<div class="dashboard-grid" style="margin-bottom: 20px;">';
-                html += `<div class="dashboard-card">
-                    <h3>合計売上</h3>
-                    <div class="value">¥${(data.summary.total_amount || data.summary.total_sales || 0).toLocaleString()}</div>
-                    <div class="sub-info">期間: ${data.summary.period_days}日間</div>
-                </div>`;
-                html += `<div class="dashboard-card">
-                    <h3>販売数</h3>
-                    <div class="value">${data.summary.total_units.toLocaleString()}個</div>
-                    <div class="sub-info">日平均: ${Math.round(data.summary.avg_daily_sales).toLocaleString()}円</div>
-                </div>`;
-                html += '</div>';
-            }
+            // サマリー表示（sales_dashboard APIの構造に対応）
+            const totalAmount = data.total_amount || (data.summary && data.summary.total_amount) || 0;
+            const totalQuantity = data.total_quantity || (data.summary && data.summary.total_quantity) || 0;
+            const totalOrders = data.total_orders || (data.summary && data.summary.total_orders) || 0;
             
-            // トップ商品
-            if (data.top_products && data.top_products.length > 0) {
-                html += '<h4>売上上位商品</h4>';
+            html += '<div class="dashboard-grid" style="margin-bottom: 20px;">';
+            html += `<div class="dashboard-card">
+                <h3>合計売上</h3>
+                <div class="value">¥${totalAmount.toLocaleString()}</div>
+                <div class="sub-info">選択期間</div>
+            </div>`;
+            html += `<div class="dashboard-card">
+                <h3>販売数</h3>
+                <div class="value">${totalQuantity.toLocaleString()}個</div>
+                <div class="sub-info">注文数: ${totalOrders}件</div>
+            </div>`;
+            html += '</div>';
+            
+            // 商品一覧（sales_dashboard APIのitemsを使用）
+            if (data.items && data.items.length > 0) {
+                html += '<h4>売上商品一覧</h4>';
                 html += '<table class="results-table">';
-                html += '<tr><th>商品コード</th><th>商品名</th><th>売上</th><th>販売数</th></tr>';
+                html += '<tr><th>商品コード</th><th>商品名</th><th>売上</th><th>販売数</th><th>注文数</th></tr>';
                 
-                data.top_products.forEach(product => {
+                data.items.forEach(product => {
                     html += `<tr>
-                        <td>${product.product_code}</td>
-                        <td>${product.product_name}</td>
-                        <td>¥${(product.total_amount || product.total_sales || 0).toLocaleString()}</td>
-                        <td>${product.total_units}</td>
+                        <td>${product.product_code || '-'}</td>
+                        <td>${product.product_name || '-'}</td>
+                        <td>¥${(product.total_amount || 0).toLocaleString()}</td>
+                        <td>${(product.quantity || 0).toLocaleString()}個</td>
+                        <td>${(product.orders_count || 0)}件</td>
                     </tr>`;
                 });
                 
