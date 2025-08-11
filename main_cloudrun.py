@@ -3455,6 +3455,7 @@ async def sales_dashboard(request: Request):
     <script>
         // 初期設定
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOMContentLoaded triggered');
             const today = new Date();
             const thirtyDaysAgo = new Date(today);
             thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -3462,13 +3463,17 @@ async def sales_dashboard(request: Request):
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
             document.getElementById('startDate').value = thirtyDaysAgo.toISOString().split('T')[0];
             
+            console.log('About to call loadData()');
             loadData();
         });
 
         async function loadData() {
+            console.log('loadData() called');
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const groupBy = document.getElementById('groupBy').value;
+            
+            console.log('Date range:', startDate, 'to', endDate);
             
             // 日数を計算
             const start = new Date(startDate);
@@ -3476,9 +3481,14 @@ async def sales_dashboard(request: Request):
             const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
             
             // 売上データ取得
+            const apiUrl = `${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`;
+            console.log('Fetching:', apiUrl);
+            
             try {
-                const response = await fetch(`${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`);
+                const response = await fetch(apiUrl);
+                console.log('Response status:', response.status);
                 const data = await response.json();
+                console.log('API response data:', data);
                 
                 if (data.status === 'success') {
                     // サマリー更新 - 実際のAPIレスポンス構造に合わせる
