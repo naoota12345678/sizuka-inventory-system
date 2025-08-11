@@ -401,11 +401,29 @@ async def search_sales(
             code = item.get('product_code', 'unknown') or 'unknown'
             price = safe_float(item.get('price', 0))
             quantity = safe_int(item.get('quantity', 0))
+            product_name = item.get('product_name', '') or ''
+            
+            # 商品名が空の場合、product_masterまたはchoice_code_mappingから取得
+            if not product_name and code != 'unknown':
+                try:
+                    # 1. product_masterから検索
+                    pm_result = supabase.table("product_master").select("product_name").eq("common_code", code).execute()
+                    if pm_result.data and pm_result.data[0].get('product_name'):
+                        product_name = pm_result.data[0]['product_name']
+                    else:
+                        # 2. choice_code_mappingから検索（フォールバック）
+                        ccm_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", code).execute()
+                        if ccm_result.data and ccm_result.data[0].get('product_name'):
+                            product_name = ccm_result.data[0]['product_name']
+                        else:
+                            product_name = f"商品_{code}"  # デフォルト名
+                except Exception:
+                    product_name = f"商品_{code}"  # エラー時のフォールバック
             
             if code not in product_summary:
                 product_summary[code] = {
                     'product_code': code,
-                    'product_name': item.get('product_name', '') or '',
+                    'product_name': product_name,
                     'total_quantity': 0,
                     'quantity': 0,  # フロントエンド互換性
                     'total_amount': 0.0,
@@ -515,9 +533,28 @@ async def sales_dashboard(
         product_sales = {}
         for item in all_sales:
             product_code = item.get('product_code', 'unknown')
-            product_name = item.get('product_name', '商品名未設定')
+            product_name = item.get('product_name', '') or ''
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
+            
+            # 商品名が空の場合、product_masterまたはchoice_code_mappingから取得
+            if not product_name and product_code != 'unknown':
+                try:
+                    # 1. product_masterから検索
+                    pm_result = supabase.table("product_master").select("product_name").eq("common_code", product_code).execute()
+                    if pm_result.data and pm_result.data[0].get('product_name'):
+                        product_name = pm_result.data[0]['product_name']
+                    else:
+                        # 2. choice_code_mappingから検索（フォールバック）
+                        ccm_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", product_code).execute()
+                        if ccm_result.data and ccm_result.data[0].get('product_name'):
+                            product_name = ccm_result.data[0]['product_name']
+                        else:
+                            product_name = f"商品_{product_code}"  # デフォルト名
+                except Exception:
+                    product_name = f"商品_{product_code}"  # エラー時のフォールバック
+            elif not product_name:
+                product_name = '商品名未設定'
             
             if product_code not in product_sales:
                 product_sales[product_code] = {
