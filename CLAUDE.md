@@ -253,6 +253,168 @@ const API_BASE = 'https://sizuka-inventory-system-1025485420770.asia-northeast1.
 - shop_item_code
 - extended_rakuten_data (JSONB)
 
+## 【重要】テーブルマッピング完全ガイド（2025-08-11）
+
+> **問題回避のため**: `common_code`フィールド不存在エラー等を防ぐための詳細リファレンス
+
+### 各テーブルの実際のフィールド構造
+
+#### 1. order_items テーブル
+```sql
+-- 実際に使用可能なフィールド
+quantity           INTEGER    -- 数量
+price             DECIMAL    -- 単価
+product_code      TEXT       -- 商品コード（楽天管理番号）
+product_name      TEXT       -- 商品名（時々空）
+created_at        TIMESTAMP  -- 作成日時
+choice_code       TEXT       -- 選択肢コード（P01、S01、S02等）
+rakuten_item_number TEXT     -- 楽天商品番号
+order_id          UUID       -- 注文ID
+
+-- ❌ 存在しないフィールド
+-- common_code      -- これは存在しない！
+-- rakuten_sku      -- これも存在しない！
+```
+
+#### 2. product_master テーブル
+```sql
+-- 楽天SKU→共通コードのマッピング
+common_code       TEXT       -- 共通コード（CM001等）
+product_name      TEXT       -- 商品名
+rakuten_sku       TEXT       -- 楽天SKU（マッピングキー）
+```
+
+#### 3. choice_code_mapping テーブル
+```sql
+-- 選択肢コード→共通コードのマッピング
+choice_info       JSONB      -- {"choice_code": "P01", "choice_name": "..."}
+common_code       TEXT       -- 共通コード（CM201等）
+product_name      TEXT       -- 商品名
+rakuten_sku       TEXT       -- 楽天SKU（NOT NULL制約対応）
+```
+
+#### 4. inventory テーブル
+```sql
+-- 在庫管理
+common_code       TEXT       -- 共通コード（CM001等、またはマッピング前のP01等）
+current_stock     INTEGER    -- 現在在庫数
+minimum_stock     INTEGER    -- 最小在庫数
+last_updated      TIMESTAMP  -- 最終更新日時
+product_name      TEXT       -- 商品名
+```
+
+### マッピングシステムの正しい実装パターン
+
+#### ✅ 正しい商品名取得ロジック
+```python
+def get_product_name_from_order_item(item):
+    """order_itemsのアイテムから正しく商品名を取得"""
+    
+    product_code = item.get('product_code', 'unknown')
+    choice_code = item.get('choice_code', '') or ''
+    product_name = ''
+    
+    try:
+        # 優先順位1: choice_codeがある場合、choice_code_mappingから検索
+        if choice_code:
+            ccm_result = supabase.table("choice_code_mapping").select(
+                "product_name, common_code"
+            ).eq("choice_info->>choice_code", choice_code).execute()
+            
+            if ccm_result.data and ccm_result.data[0].get('product_name'):
+                return ccm_result.data[0]['product_name']
+        
+        # 優先順位2: product_codeでproduct_masterから検索
+        if not product_name and product_code != 'unknown':
+            pm_result = supabase.table("product_master").select(
+                "product_name, common_code"
+            ).eq("rakuten_sku", product_code).execute()
+            
+            if pm_result.data and pm_result.data[0].get('product_name'):
+                return pm_result.data[0]['product_name']
+        
+        # 優先順位3: order_itemsのproduct_nameを使用（フォールバック）
+        return item.get('product_name', '') or f"商品_{product_code}"
+        
+    except Exception:
+        # エラー時のフォールバック
+        return item.get('product_name', '') or f"商品_{product_code}"
+```
+
+#### ✅ 正しいクエリパターン
+```python
+# order_itemsの正しいクエリ
+query = supabase.table('order_items').select(
+    'quantity, price, product_code, product_name, choice_code, created_at, orders(order_date, created_at, id)'
+)
+# または全フィールド取得
+query = supabase.table('order_items').select('*')
+
+# choice_code_mappingのJSONBクエリ
+ccm_result = supabase.table("choice_code_mapping").select(
+    "product_name, common_code"
+).eq("choice_info->>choice_code", choice_code).execute()
+
+# product_masterのrakuten_skuクエリ
+pm_result = supabase.table("product_master").select(
+    "product_name, common_code"
+).eq("rakuten_sku", product_code).execute()
+```
+
+#### ❌ よくある間違いパターン
+```python
+# 🚫 これは存在しないフィールドでエラーになる
+query = supabase.table('order_items').select('common_code')  # common_codeは存在しない
+
+# 🚫 間違ったマッピング検索
+supabase.table("product_master").eq("common_code", product_code)  # 逆方向検索
+
+# 🚫 間違ったJSONBクエリ
+supabase.table("choice_code_mapping").eq("choice_code", choice_code)  # choice_codeフィールドは存在しない
+```
+
+### マッピング関係図
+```
+楽天注文データ (order_items)
+├─ choice_code → choice_code_mapping (choice_info->>choice_code) → common_code → 商品名
+└─ product_code → product_master (rakuten_sku) → common_code → 商品名
+
+フォールバック:
+└─ order_items.product_name → そのまま表示
+```
+
+### 重要な制約・注意事項
+
+1. **存在しないフィールド**
+   - `order_items.common_code` は存在しない
+   - `order_items.rakuten_sku` は存在しない
+   - 直接共通コードを取得することはできない
+
+2. **JSONB構造の重要性**
+   - `choice_code_mapping.choice_info` はJSONB型
+   - `choice_info->>choice_code` でネストされた値を検索
+   - 通常の等価検索は使用不可
+
+3. **マッピングの優先順位**
+   - choice_code優先（より具体的）
+   - product_code次（一般的なマッピング）
+   - order_items.product_name最後（フォールバック）
+
+4. **パフォーマンス考慮事項**
+   - 大量データ処理時はN+1クエリに注意
+   - 可能な限りJOINまたはバッチ処理を使用
+   - キャッシュ機能の活用を検討
+
+### APIでの実装時のチェックリスト
+
+- [ ] order_itemsから`common_code`フィールドを取得していないか
+- [ ] `choice_info->>choice_code`の正しいJSONBクエリを使用しているか
+- [ ] `rakuten_sku`での`product_master`検索を使用しているか
+- [ ] 適切なフォールバック処理があるか
+- [ ] エラー処理が実装されているか
+
+このガイドに従うことで、テーブルマッピングに関するエラーを回避できます。
+
 ## Google Sheets連携
 
 ### 対象シート
