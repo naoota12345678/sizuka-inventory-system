@@ -564,35 +564,17 @@ async def sales_dashboard(
                 logger.info(f"CM016デバッグ - product_name in item: {item.get('product_name', 'NOT_FOUND')}")
             
             try:
-                # Step 1: 共通コードを取得
-                # 1-a. choice_codeがある場合、choice_code_mappingから共通コードを取得
-                if choice_code:
-                    ccm_result = supabase.table("choice_code_mapping").select("product_name, common_code").eq("choice_info->>choice_code", choice_code).execute()
-                    if ccm_result.data and ccm_result.data[0].get('common_code'):
-                        common_code = ccm_result.data[0]['common_code']
-                        product_name = ccm_result.data[0].get('product_name', '')
-                
-                # 1-b. choice_codeで見つからない場合、product_codeでproduct_masterから共通コードを取得
-                if not common_code and product_code != 'unknown':
-                    pm_result = supabase.table("product_master").select("product_name, common_code").eq("rakuten_sku", product_code).execute()
-                    
-                    # デバッグ情報（一時的）
-                    if product_code == '10003':
-                        logger.info(f"10003デバッグ - pm_result: {pm_result.data}")
-                    
+                # Step 1: product_codeからcommon_codeを取得
+                if product_code != 'unknown':
+                    pm_result = supabase.table("product_master").select("common_code").eq("rakuten_sku", product_code).execute()
                     if pm_result.data and pm_result.data[0].get('common_code'):
                         common_code = pm_result.data[0]['common_code']
-                        product_name = pm_result.data[0].get('product_name', '')
-                        
-                        # デバッグ情報（一時的）
-                        if product_code == '10003':
-                            logger.info(f"10003デバッグ - found common_code: {common_code}, product_name: {product_name}")
                 
-                # Step 2: 共通コードから商品名を取得（choice_code_mappingのみ）
-                if common_code and not product_name:
-                    ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
-                    if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
-                        product_name = ccm_name_result.data[0]['product_name']
+                # Step 2: common_codeから商品名を取得
+                if common_code:
+                    ccm_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
+                    if ccm_result.data and ccm_result.data[0].get('product_name'):
+                        product_name = ccm_result.data[0]['product_name']
                 
                 # Step 3: 最終フォールバック
                 if not product_name:
