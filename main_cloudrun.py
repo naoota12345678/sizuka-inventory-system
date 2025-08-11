@@ -130,7 +130,7 @@ async def dashboard():
             <p>APIは正常に動作しています。</p>
             <ul>
                 <li><a href="/api/inventory_list">在庫一覧API</a></li>
-                <li><a href="/api/sales_dashboard">売上ダッシュボードAPI</a></li>
+                <li><a href="/sales-dashboard">売上ダッシュボード</a></li>
                 <li><a href="/health">ヘルスチェック</a></li>
                 <li><a href="/docs">APIドキュメント</a></li>
             </ul>
