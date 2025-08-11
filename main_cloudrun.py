@@ -511,13 +511,22 @@ async def sales_dashboard(
                     "product_code": product_code,
                     "product_name": product_name,
                     "total_amount": 0,
-                    "total_quantity": 0,
+                    "quantity": 0,
+                    "orders_count": 0,
                     "order_count": 0
                 }
             
             product_sales[product_code]["total_amount"] += amount
-            product_sales[product_code]["total_quantity"] += quantity
+            product_sales[product_code]["quantity"] += quantity
+            product_sales[product_code]["orders_count"] += 1
             product_sales[product_code]["order_count"] += 1
+        
+        # 平均価格計算
+        for product in product_sales.values():
+            if product["quantity"] > 0:
+                product["average_price"] = product["total_amount"] / product["quantity"]
+            else:
+                product["average_price"] = 0
         
         # ソートとページネーション
         sorted_products = sorted(product_sales.values(), key=lambda x: x["total_amount"], reverse=True)
@@ -532,6 +541,7 @@ async def sales_dashboard(
                 "end_date": end_date
             },
             "summary": {
+                "total_sales": total_amount,
                 "total_amount": total_amount,
                 "total_quantity": total_quantity,
                 "total_orders": unique_orders,
