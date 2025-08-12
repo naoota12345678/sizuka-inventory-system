@@ -21,7 +21,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 # Google Sheets CSV export URLs
 GOOGLE_SHEETS_URLS = {
-    "choice_mapping": "https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczuS3E/export?format=csv&gid=1290908701",  # 選択肢コード対応表
+    "choice_mapping": "https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczuS3E/export?format=csv&gid=1695475455",  # 選択肢コード対応表
     "bundle_components": "https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczuS3E/export?format=csv&gid=0",  # まとめ商品内訳テーブル
     "product_mapping": "https://docs.google.com/spreadsheets/d/1mLg1N0a1wubEIdKSouiW_jDaWUnuFLBxj8greczuS3E/export?format=csv&gid=0"  # 商品番号マッピング基本表 (最初のタブを再確認)
 }
