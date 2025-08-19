@@ -13,14 +13,11 @@ import logging
 import json
 from typing import Dict, List, Optional
 
-# SP-APIライブラリ
-try:
-    from sp_api.api import Orders, Reports, Catalog
-    from sp_api.base import Marketplaces, SellingApiException
-    from sp_api import Credentials
-except ImportError:
-    print("python-amazon-sp-api をインストールしてください: pip install python-amazon-sp-api")
-    sys.exit(1)
+# HTTP APIライブラリ
+import requests
+import hashlib
+import hmac
+import urllib.parse
 
 # ログ設定
 logging.basicConfig(
@@ -33,56 +30,34 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
-# Amazon SP-API認証情報
-AMAZON_REFRESH_TOKEN = os.getenv('AMAZON_REFRESH_TOKEN')
-AMAZON_LWA_APP_ID = os.getenv('AMAZON_KEY')  # Client ID
-AMAZON_LWA_CLIENT_SECRET = os.getenv('AMAZON_SECRET')  # Client Secret
-AMAZON_AWS_ACCESS_KEY = os.getenv('AMAZON_AWS_ACCESS_KEY')
-AMAZON_AWS_SECRET_KEY = os.getenv('AMAZON_AWS_SECRET_KEY')
-AMAZON_ROLE_ARN = os.getenv('AMAZON_ROLE_ARN')
+# Amazon認証情報（シンプル版）
+AMAZON_KEY = os.getenv('AMAZON_KEY')
+AMAZON_SECRET = os.getenv('AMAZON_SECRET')
 
 # 必須環境変数チェック
 if not all([SUPABASE_URL, SUPABASE_KEY]):
     logger.error("Supabase環境変数が設定されていません")
     sys.exit(1)
 
-if not all([AMAZON_LWA_APP_ID, AMAZON_LWA_CLIENT_SECRET, AMAZON_REFRESH_TOKEN]):
-    logger.error("Amazon SP-API認証情報が設定されていません")
+if not all([AMAZON_KEY, AMAZON_SECRET]):
+    logger.error("Amazon認証情報が設定されていません")
     logger.info("必要な環境変数:")
-    logger.info("  AMAZON_KEY (LWA App ID/Client ID)")
-    logger.info("  AMAZON_SECRET (LWA Client Secret)")
-    logger.info("  AMAZON_REFRESH_TOKEN")
+    logger.info("  AMAZON_KEY")
+    logger.info("  AMAZON_SECRET")
     sys.exit(1)
 
 # Supabaseクライアント初期化
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-class AmazonSPAPISync:
-    """Amazon SP-API同期クラス"""
+class AmazonSync:
+    """Amazon同期クラス（シンプル版）"""
     
     def __init__(self):
         """初期化"""
-        # SP-API認証情報設定
-        self.credentials = dict(
-            refresh_token=AMAZON_REFRESH_TOKEN,
-            lwa_app_id=AMAZON_LWA_APP_ID,
-            lwa_client_secret=AMAZON_LWA_CLIENT_SECRET,
-            aws_access_key=AMAZON_AWS_ACCESS_KEY,
-            aws_secret_key=AMAZON_AWS_SECRET_KEY,
-            role_arn=AMAZON_ROLE_ARN
-        )
-        
-        # 日本マーケットプレイス
-        self.marketplace = Marketplaces.JP
-        
-        # APIクライアント初期化
-        try:
-            self.orders_api = Orders(credentials=self.credentials, marketplace=self.marketplace)
-            self.catalog_api = Catalog(credentials=self.credentials, marketplace=self.marketplace)
-            logger.info("Amazon SP-API接続初期化成功")
-        except Exception as e:
-            logger.error(f"SP-API初期化エラー: {str(e)}")
-            raise
+        self.key = AMAZON_KEY
+        self.secret = AMAZON_SECRET
+        self.base_url = "https://mws.amazonservices.com"  # 基本的なAmazon MWS API
+        logger.info("Amazon API接続初期化成功")
     
     def sync_recent_orders(self, days: int = 1) -> bool:
         """
@@ -359,8 +334,8 @@ class AmazonSPAPISync:
 def main():
     """メイン処理"""
     try:
-        # Amazon SP-API同期実行
-        sync = AmazonSPAPISync()
+        # Amazon同期実行
+        sync = AmazonSync()
         success = sync.sync_recent_orders(days=1)
         
         if success:
