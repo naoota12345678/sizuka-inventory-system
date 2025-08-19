@@ -31,7 +31,7 @@ jobs:
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
       run: python keep_alive.py
     
-    - name: Sync Orders
+    - name: Sync Rakuten Orders
       if: github.event.schedule == '0 0 * * *'
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -39,3 +39,12 @@ jobs:
         RAKUTEN_SERVICE_SECRET: ${{ secrets.RAKUTEN_SERVICE_SECRET }}
         RAKUTEN_LICENSE_KEY: ${{ secrets.RAKUTEN_LICENSE_KEY }}
       run: python daily_sync.py
+    
+    - name: Sync Amazon Orders
+      if: github.event.schedule == '0 0 * * *'
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
+        AMAZON_KEY: ${{ secrets.AMAZON_KEY }}
+      run: python amazon_daily_sync.py
