@@ -26,4 +26,6 @@ jobs:
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         AMAZON_KEY: ${{ secrets.AMAZON_KEY }}
         AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
+        AMAZON_ACCESS_KEY_ID: ${{ secrets.AMAZON_ACCESS_KEY_ID }}
+        AMAZON_SECRET_ACCESS_KEY: ${{ secrets.AMAZON_SECRET_ACCESS_KEY }}
       run: python amazon_sp_api_sync.py

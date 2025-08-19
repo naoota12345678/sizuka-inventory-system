@@ -30,21 +30,29 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
-# Amazon認証情報（シンプル版）
-AMAZON_KEY = os.getenv('AMAZON_KEY')
-AMAZON_SECRET = os.getenv('AMAZON_SECRET')
+# Amazon認証情報
+AMAZON_SELLER_ID = os.getenv('AMAZON_KEY')  # Seller ID
+AMAZON_MWS_AUTH_TOKEN = os.getenv('AMAZON_SECRET')  # MWS Auth Token
+AMAZON_ACCESS_KEY_ID = os.getenv('AMAZON_ACCESS_KEY_ID')  # AWS Access Key ID
+AMAZON_SECRET_ACCESS_KEY = os.getenv('AMAZON_SECRET_ACCESS_KEY')  # AWS Secret Key
 
 # 必須環境変数チェック
 if not all([SUPABASE_URL, SUPABASE_KEY]):
     logger.error("Supabase environment variables not set")
     sys.exit(1)
 
-if not all([AMAZON_KEY, AMAZON_SECRET]):
-    logger.error("Amazon credentials not set")
+if not all([AMAZON_SELLER_ID, AMAZON_MWS_AUTH_TOKEN]):
+    logger.error("Amazon basic credentials not set")
     logger.info("Required environment variables:")
-    logger.info("  AMAZON_KEY")
-    logger.info("  AMAZON_SECRET")
+    logger.info("  AMAZON_KEY (Seller ID)")
+    logger.info("  AMAZON_SECRET (MWS Auth Token)")
     sys.exit(1)
+
+if not all([AMAZON_ACCESS_KEY_ID, AMAZON_SECRET_ACCESS_KEY]):
+    logger.warning("AWS credentials not set - some API calls may fail")
+    logger.info("Additional required environment variables:")
+    logger.info("  AMAZON_ACCESS_KEY_ID")  
+    logger.info("  AMAZON_SECRET_ACCESS_KEY")
 
 # Supabaseクライアント初期化
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -54,8 +62,10 @@ class AmazonSync:
     
     def __init__(self):
         """初期化"""
-        self.key = AMAZON_KEY
-        self.secret = AMAZON_SECRET
+        self.seller_id = AMAZON_SELLER_ID
+        self.mws_auth_token = AMAZON_MWS_AUTH_TOKEN
+        self.access_key_id = AMAZON_ACCESS_KEY_ID
+        self.secret_access_key = AMAZON_SECRET_ACCESS_KEY
         self.base_url = "https://mws.amazonservices.com"  # 基本的なAmazon MWS API
         logger.info("Amazon API connection initialized successfully")
     
@@ -130,13 +140,16 @@ class AmazonSync:
             # APIパラメータ
             params = {
                 'Action': 'ListOrders',
-                'SellerId': self.key,  # AMAZON_KEYをSellerIDとして使用
-                'MWSAuthToken': self.secret,  # AMAZON_SECRETを認証トークンとして使用
+                'SellerId': self.seller_id,
+                'MWSAuthToken': self.mws_auth_token,
+                'AWSAccessKeyId': self.access_key_id,  # 必須パラメータ追加
                 'MarketplaceId': 'A1VC38T7YXB528',  # 日本のマーケットプレイスID
                 'CreatedAfter': start_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'CreatedBefore': end_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'OrderStatus': 'Shipped',  # 出荷済み注文のみ
                 'Version': '2013-09-01',
+                'SignatureVersion': '2',
+                'SignatureMethod': 'HmacSHA256',
                 'Timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             }
             
@@ -182,7 +195,7 @@ class AmazonSync:
             
             # HMAC-SHA256で署名計算
             signature = hmac.new(
-                self.secret.encode('utf-8'),
+                self.secret_access_key.encode('utf-8'),
                 string_to_sign.encode('utf-8'),
                 hashlib.sha256
             ).digest()
@@ -404,10 +417,13 @@ class AmazonSync:
             # APIパラメータ
             params = {
                 'Action': 'ListOrderItems',
-                'SellerId': self.key,
-                'MWSAuthToken': self.secret,
+                'SellerId': self.seller_id,
+                'MWSAuthToken': self.mws_auth_token,
+                'AWSAccessKeyId': self.access_key_id,
                 'AmazonOrderId': amazon_order_id,
                 'Version': '2013-09-01',
+                'SignatureVersion': '2',
+                'SignatureMethod': 'HmacSHA256',
                 'Timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             }
             
@@ -514,8 +530,10 @@ def main():
         logger.info("=== Amazon Sync Started ===")
         logger.info(f"SUPABASE_URL: {'SET' if SUPABASE_URL else 'NOT SET'}")
         logger.info(f"SUPABASE_KEY: {'SET' if SUPABASE_KEY else 'NOT SET'}")
-        logger.info(f"AMAZON_KEY: {'SET' if AMAZON_KEY else 'NOT SET'}")
-        logger.info(f"AMAZON_SECRET: {'SET' if AMAZON_SECRET else 'NOT SET'}")
+        logger.info(f"AMAZON_KEY (Seller ID): {'SET' if AMAZON_SELLER_ID else 'NOT SET'}")
+        logger.info(f"AMAZON_SECRET (MWS Token): {'SET' if AMAZON_MWS_AUTH_TOKEN else 'NOT SET'}")
+        logger.info(f"AMAZON_ACCESS_KEY_ID: {'SET' if AMAZON_ACCESS_KEY_ID else 'NOT SET'}")
+        logger.info(f"AMAZON_SECRET_ACCESS_KEY: {'SET' if AMAZON_SECRET_ACCESS_KEY else 'NOT SET'}")
         
         # Amazon同期実行
         sync = AmazonSync()
