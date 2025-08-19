@@ -79,6 +79,9 @@ def sync_recent_orders(days=1):
         
         if response.status_code != 200:
             logger.error(f"API エラー: {response.status_code}")
+            logger.error(f"レスポンス内容: {response.text[:500]}")
+            logger.error(f"リクエストURL: {response.url}")
+            logger.error(f"リクエストヘッダー: {headers}")
             return False
         
         # レスポンス解析
