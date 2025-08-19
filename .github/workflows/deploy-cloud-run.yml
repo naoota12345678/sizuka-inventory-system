@@ -51,6 +51,8 @@ jobs:
         if [ -z "${{ secrets.SUPABASE_KEY }}" ]; then echo "WARNING: SUPABASE_KEY is empty"; fi
         if [ -z "${{ secrets.RAKUTEN_SERVICE_SECRET }}" ]; then echo "WARNING: RAKUTEN_SERVICE_SECRET is empty"; fi
         if [ -z "${{ secrets.RAKUTEN_LICENSE_KEY }}" ]; then echo "WARNING: RAKUTEN_LICENSE_KEY is empty"; fi
+        if [ -z "${{ secrets.AMAZON_SECRET }}" ]; then echo "WARNING: AMAZON_SECRET is empty"; fi
+        if [ -z "${{ secrets.AMAZON_KEY }}" ]; then echo "WARNING: AMAZON_KEY is empty"; fi
 
     - name: Build Docker image
       run: |
@@ -68,7 +70,7 @@ jobs:
           --region ${{ env.REGION }} \
           --platform managed \
           --allow-unauthenticated \
-          --set-env-vars "SUPABASE_URL=https://equrcpeifogdrxoldkpe.supabase.co,SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ,RAKUTEN_SERVICE_SECRET=${{ secrets.RAKUTEN_SERVICE_SECRET }},RAKUTEN_LICENSE_KEY=${{ secrets.RAKUTEN_LICENSE_KEY }},COLORME_CLIENT_ID=${{ secrets.COLORME_CLIENT_ID }},COLORME_CLIENT_SECRET=${{ secrets.COLORME_CLIENT_SECRET }},COLORME_REDIRECT_URI=${{ secrets.COLORME_REDIRECT_URI }},COLORME_ACCESS_TOKEN=${{ secrets.COLORME_ACCESS_TOKEN }}" \
+          --set-env-vars "SUPABASE_URL=https://equrcpeifogdrxoldkpe.supabase.co,SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ,RAKUTEN_SERVICE_SECRET=${{ secrets.RAKUTEN_SERVICE_SECRET }},RAKUTEN_LICENSE_KEY=${{ secrets.RAKUTEN_LICENSE_KEY }},COLORME_CLIENT_ID=${{ secrets.COLORME_CLIENT_ID }},COLORME_CLIENT_SECRET=${{ secrets.COLORME_CLIENT_SECRET }},COLORME_REDIRECT_URI=${{ secrets.COLORME_REDIRECT_URI }},COLORME_ACCESS_TOKEN=${{ secrets.COLORME_ACCESS_TOKEN }},AMAZON_SECRET=${{ secrets.AMAZON_SECRET }},AMAZON_KEY=${{ secrets.AMAZON_KEY }},AMAZON_MARKETPLACE_ID=A1VC38T7YXB528" \
           --memory 1Gi \
           --cpu 1 \
           --timeout 300s \
