@@ -45,6 +45,10 @@ jobs:
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
         AMAZON_KEY: ${{ secrets.AMAZON_KEY }}
-      run: python amazon_daily_sync.py
+        AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
+        AMAZON_REFRESH_TOKEN: ${{ secrets.AMAZON_REFRESH_TOKEN }}
+        AMAZON_AWS_ACCESS_KEY: ${{ secrets.AMAZON_AWS_ACCESS_KEY }}
+        AMAZON_AWS_SECRET_KEY: ${{ secrets.AMAZON_AWS_SECRET_KEY }}
+        AMAZON_ROLE_ARN: ${{ secrets.AMAZON_ROLE_ARN }}
+      run: python amazon_sp_api_sync.py
