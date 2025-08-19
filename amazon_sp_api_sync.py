@@ -48,11 +48,11 @@ if not all([AMAZON_SELLER_ID, AMAZON_MWS_AUTH_TOKEN]):
     logger.info("  AMAZON_SECRET (MWS Auth Token)")
     sys.exit(1)
 
-if not all([AMAZON_ACCESS_KEY_ID, AMAZON_SECRET_ACCESS_KEY]):
-    logger.warning("AWS credentials not set - some API calls may fail")
-    logger.info("Additional required environment variables:")
-    logger.info("  AMAZON_ACCESS_KEY_ID")  
-    logger.info("  AMAZON_SECRET_ACCESS_KEY")
+# AWS認証情報はオプション - 基本認証で試行
+if not AMAZON_ACCESS_KEY_ID or not AMAZON_SECRET_ACCESS_KEY:
+    logger.info("AWS credentials not provided - trying basic MWS authentication")
+    AMAZON_ACCESS_KEY_ID = AMAZON_SELLER_ID  # フォールバック
+    AMAZON_SECRET_ACCESS_KEY = AMAZON_MWS_AUTH_TOKEN  # フォールバック
 
 # Supabaseクライアント初期化
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -66,7 +66,8 @@ class AmazonSync:
         self.mws_auth_token = AMAZON_MWS_AUTH_TOKEN
         self.access_key_id = AMAZON_ACCESS_KEY_ID
         self.secret_access_key = AMAZON_SECRET_ACCESS_KEY
-        self.base_url = "https://mws.amazonservices.com"  # 基本的なAmazon MWS API
+        self.base_url = "https://mws.amazonservices.com"  # Amazon MWS API
+        self.marketplace_id = "A1VC38T7YXB528"  # 日本マーケットプレイス
         logger.info("Amazon API connection initialized successfully")
     
     def sync_recent_orders(self, days: int = 1, start_date_override: datetime = None, end_date_override: datetime = None) -> bool:
@@ -137,25 +138,33 @@ class AmazonSync:
             # Amazon MWS APIエンドポイント（注文取得）
             endpoint = f"{self.base_url}/Orders/2013-09-01"
             
-            # APIパラメータ
+            # シンプルなAPIパラメータで試行
+            timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
             params = {
                 'Action': 'ListOrders',
                 'SellerId': self.seller_id,
                 'MWSAuthToken': self.mws_auth_token,
-                'AWSAccessKeyId': self.access_key_id,  # 必須パラメータ追加
-                'MarketplaceId': 'A1VC38T7YXB528',  # 日本のマーケットプレイスID
+                'MarketplaceId': self.marketplace_id,
                 'CreatedAfter': start_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
                 'CreatedBefore': end_date.strftime('%Y-%m-%dT%H:%M:%SZ'),
-                'OrderStatus': 'Shipped',  # 出荷済み注文のみ
                 'Version': '2013-09-01',
-                'SignatureVersion': '2',
-                'SignatureMethod': 'HmacSHA256',
-                'Timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                'Timestamp': timestamp
             }
             
-            # AWS署名計算
-            signature = self._calculate_aws_signature(params)
-            params['Signature'] = signature
+            # 最小限の署名パラメータのみ追加
+            if self.access_key_id and self.access_key_id != self.seller_id:
+                params.update({
+                    'AWSAccessKeyId': self.access_key_id,
+                    'SignatureVersion': '2',
+                    'SignatureMethod': 'HmacSHA256'
+                })
+            
+            # 署名計算（AWS認証情報がある場合のみ）
+            if self.access_key_id and self.access_key_id != self.seller_id:
+                signature = self._calculate_aws_signature(params)
+                params['Signature'] = signature
+            else:
+                logger.info("Using basic MWS authentication without AWS signature")
             
             # APIリクエスト実行
             logger.info(f"Amazon API request to: {endpoint}")
