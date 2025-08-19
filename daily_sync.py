@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-楽天注文データの日次同期スクリプト
+楽天注文データの日次同期スクリプト（v2.0 API対応版）
 GitHub Actions用
 """
 
@@ -10,6 +10,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from supabase import create_client
 import logging
+import requests
+import json
+import base64
 
 # ログ設定
 logging.basicConfig(
@@ -32,124 +35,149 @@ if not all([SUPABASE_URL, SUPABASE_KEY, RAKUTEN_SERVICE_SECRET, RAKUTEN_LICENSE_
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def sync_recent_orders(days=1):
-    """最近の注文データを同期"""
+    """最近の注文データを同期（v2.0 API使用）"""
     try:
-        import requests
-        from xml.etree import ElementTree as ET
-        
         # 期間設定
         end_date = datetime.now(timezone.utc)
         start_date = end_date - timedelta(days=days)
         
         logger.info(f"同期期間: {start_date.strftime('%Y-%m-%d')} ～ {end_date.strftime('%Y-%m-%d')}")
+        logger.info("楽天API v2.0を使用")
         
-        # 楽天APIリクエスト作成
-        request_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-        <SOAP-ENV:Envelope xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="http://orderapi.rms.rakuten.co.jp/rms/mall/order/api/ws">
-            <SOAP-ENV:Body>
-                <ns1:searchOrder>
-                    <arg0>
-                        <requestId>1</requestId>
-                        <authKey>
-                            <serviceSecret>{RAKUTEN_SERVICE_SECRET}</serviceSecret>
-                            <licenseKey>{RAKUTEN_LICENSE_KEY}</licenseKey>
-                        </authKey>
-                        <shopUrl></shopUrl>
-                        <userName>sizuka</userName>
-                        <dateType>1</dateType>
-                        <startDate>{start_date.strftime('%Y%m%d')}</startDate>
-                        <endDate>{end_date.strftime('%Y%m%d')}</endDate>
-                    </arg0>
-                </ns1:searchOrder>
-            </SOAP-ENV:Body>
-        </SOAP-ENV:Envelope>"""
+        # 認証ヘッダーの作成
+        # ESA Base64(serviceSecret:licenseKey)形式
+        auth_string = f"{RAKUTEN_SERVICE_SECRET}:{RAKUTEN_LICENSE_KEY}"
+        auth_bytes = auth_string.encode('utf-8')
+        auth_b64 = base64.b64encode(auth_bytes).decode('utf-8')
         
-        # APIリクエスト送信
         headers = {
-            'Content-Type': 'text/xml; charset=utf-8',
-            'SOAPAction': ''
+            'Authorization': f'ESA {auth_b64}',
+            'Content-Type': 'application/json; charset=utf-8'
         }
         
+        # リクエストボディ（JSON形式）
+        request_body = {
+            "orderSearchModel": {
+                "dateType": 1,  # 1: 注文日
+                "startDate": start_date.strftime('%Y-%m-%d'),
+                "endDate": end_date.strftime('%Y-%m-%d'),
+                "orderProgressList": [100, 200, 300, 400, 500, 600, 700, 800, 900],  # 全ステータス
+                "settlementMethodList": [],  # 全決済方法
+                "merchantId": "",  # 店舗ID（空の場合は全店舗）
+                "searchKeywordType": 1,
+                "searchKeyword": "",
+                "searchOrderItemKeywordType": 1,
+                "searchOrderItemKeyword": "",
+                "mailSendType": [],
+                "phoneNumberType": 1,
+                "phoneNumber": "",
+                "couponType": []
+            }
+        }
+        
+        # APIリクエスト送信
         response = requests.post(
-            'https://api.rms.rakuten.co.jp/es/1.0/order/ws',
-            data=request_xml.encode('utf-8'),
+            'https://api.rms.rakuten.co.jp/es/2.0/purchaseItem/getOrderItem/',
+            json=request_body,
             headers=headers,
             timeout=60
         )
         
+        logger.info(f"APIレスポンスステータス: {response.status_code}")
+        
         if response.status_code != 200:
             logger.error(f"API エラー: {response.status_code}")
+            logger.error(f"レスポンス内容: {response.text[:500]}")
             return False
         
         # レスポンス解析
-        root = ET.fromstring(response.content)
+        response_data = response.json()
         
-        # 名前空間定義
-        namespaces = {
-            'SOAP-ENV': 'http://schemas.xmlsoap.org/soap/envelope/',
-            'ns1': 'http://orderapi.rms.rakuten.co.jp/rms/mall/order/api/ws'
-        }
+        # エラーチェック
+        if 'errors' in response_data:
+            logger.error(f"楽天APIエラー: {response_data['errors']}")
+            return False
         
         # 注文データ取得
-        orders_element = root.find('.//ns1:searchOrderReturn', namespaces)
-        if orders_element is None:
-            logger.info("新規注文データなし")
-            return True
+        orders = response_data.get('orderItemList', [])
+        logger.info(f"取得した注文数: {len(orders)}")
         
         order_count = 0
         saved_count = 0
         
         # 各注文を処理
-        for order_elem in orders_element.findall('.//orderModel', namespaces):
+        for order in orders:
             try:
-                order_number = order_elem.find('orderNumber').text if order_elem.find('orderNumber') is not None else None
+                order_number = order.get('orderNumber')
                 
                 if not order_number:
                     continue
                 
                 order_count += 1
                 
+                # 既存レコードチェック
+                existing = supabase.table("orders").select("id").eq("order_number", order_number).execute()
+                
+                if existing.data:
+                    logger.info(f"既存注文をスキップ: {order_number}")
+                    continue
+                
                 # 注文データの作成
-                order_date_str = order_elem.find('orderDate').text if order_elem.find('orderDate') is not None else None
-                order_date = datetime.strptime(order_date_str, '%Y-%m-%d %H:%M:%S') if order_date_str else datetime.now(timezone.utc)
+                order_date_str = order.get('orderDatetime')
+                if order_date_str:
+                    # ISO形式に変換
+                    order_date = datetime.strptime(order_date_str, '%Y-%m-%d %H:%M:%S')
+                    order_date = order_date.replace(tzinfo=timezone.utc)
+                else:
+                    order_date = datetime.now(timezone.utc)
                 
                 order_data = {
                     'order_number': order_number,
                     'order_date': order_date.isoformat(),
                     'platform': 'rakuten',
+                    'status': str(order.get('orderProgress', '')),
                     'created_at': datetime.now(timezone.utc).isoformat()
                 }
                 
                 # ordersテーブルに保存
-                order_result = supabase.table('orders').upsert(
-                    order_data,
-                    on_conflict='order_number'
-                ).execute()
+                order_result = supabase.table('orders').insert(order_data).execute()
                 
                 if order_result.data:
                     order_id = order_result.data[0]['id']
                     
                     # 商品情報を処理
-                    items_element = order_elem.find('itemList')
-                    if items_element:
-                        for item_elem in items_element.findall('itemModel'):
-                            try:
-                                item_data = {
-                                    'order_id': order_id,
-                                    'product_code': item_elem.find('itemNumber').text if item_elem.find('itemNumber') is not None else 'unknown',
-                                    'product_name': item_elem.find('itemName').text if item_elem.find('itemName') is not None else '',
-                                    'quantity': int(item_elem.find('units').text) if item_elem.find('units') is not None else 1,
-                                    'price': float(item_elem.find('price').text) if item_elem.find('price') is not None else 0,
-                                    'created_at': datetime.now(timezone.utc).isoformat()
-                                }
-                                
-                                # order_itemsテーブルに保存
-                                supabase.table('order_items').insert(item_data).execute()
-                                
-                            except Exception as e:
-                                logger.error(f"商品データ保存エラー: {e}")
+                    item_list = order.get('itemList', [])
+                    for item in item_list:
+                        try:
+                            # 商品データの作成
+                            item_data = {
+                                'order_id': order_id,
+                                'product_code': item.get('itemNumber', 'unknown'),
+                                'product_name': item.get('itemName', ''),
+                                'quantity': int(item.get('units', 1)),
+                                'price': float(item.get('price', 0)),
+                                'rakuten_item_number': item.get('itemNumber'),
+                                'choice_code': item.get('selectedChoice', ''),
+                                'created_at': datetime.now(timezone.utc).isoformat()
+                            }
+                            
+                            # 選択肢コードの抽出（もし含まれている場合）
+                            selected_choice = item.get('selectedChoice', '')
+                            if selected_choice:
+                                # 選択肢から選択肢コードを抽出
+                                import re
+                                match = re.search(r'[A-Z]\d{2}', selected_choice)
+                                if match:
+                                    item_data['choice_code'] = match.group()
+                            
+                            # order_itemsテーブルに保存
+                            supabase.table('order_items').insert(item_data).execute()
+                            
+                        except Exception as e:
+                            logger.error(f"商品データ保存エラー: {e}")
                     
                     saved_count += 1
+                    logger.info(f"新規注文追加: {order_number}")
                     
             except Exception as e:
                 logger.error(f"注文 {order_number} 保存エラー: {e}")
@@ -166,4 +194,9 @@ def sync_recent_orders(days=1):
 if __name__ == "__main__":
     # 実行
     success = sync_recent_orders(days=1)
-    sys.exit(0 if success else 1)
+    
+    if success:
+        logger.info("同期処理が正常に完了しました")
+    else:
+        logger.error("同期処理でエラーが発生しました")
+        sys.exit(1)
