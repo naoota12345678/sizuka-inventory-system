@@ -59,20 +59,26 @@ class AmazonSync:
         self.base_url = "https://mws.amazonservices.com"  # 基本的なAmazon MWS API
         logger.info("Amazon API connection initialized successfully")
     
-    def sync_recent_orders(self, days: int = 1) -> bool:
+    def sync_recent_orders(self, days: int = 1, start_date_override: datetime = None, end_date_override: datetime = None) -> bool:
         """
         最近の注文を同期（実際のAmazon API実装）
         
         Args:
             days: 何日前からのデータを取得するか
+            start_date_override: 開始日時の上書き
+            end_date_override: 終了日時の上書き
             
         Returns:
             成功/失敗
         """
         try:
             # 期間設定
-            end_date = datetime.now(timezone.utc)
-            start_date = end_date - timedelta(days=days)
+            if start_date_override and end_date_override:
+                start_date = start_date_override
+                end_date = end_date_override
+            else:
+                end_date = datetime.now(timezone.utc)
+                start_date = end_date - timedelta(days=days)
             
             logger.info(f"Amazon sync period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
             
@@ -507,7 +513,14 @@ def main():
     try:
         # Amazon同期実行
         sync = AmazonSync()
-        success = sync.sync_recent_orders(days=1)
+        
+        # 6月1日から今日までの期間を設定
+        from datetime import date
+        start_date = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+        end_date = datetime.now(timezone.utc)
+        
+        logger.info(f"Historical sync: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+        success = sync.sync_recent_orders(start_date_override=start_date, end_date_override=end_date)
         
         if success:
             logger.info("Amazon同期処理が正常に完了しました")
