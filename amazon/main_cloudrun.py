@@ -130,7 +130,7 @@ async def dashboard():
             <p>APIは正常に動作しています。</p>
             <ul>
                 <li><a href="/api/inventory_list">在庫一覧API</a></li>
-                <li><a href="/sales-dashboard">売上ダッシュボード</a></li>
+                <li><a href="/api/sales_dashboard">売上ダッシュボードAPI</a></li>
                 <li><a href="/health">ヘルスチェック</a></li>
                 <li><a href="/docs">APIドキュメント</a></li>
             </ul>
@@ -274,33 +274,14 @@ async def get_inventory_list(
                 # 1. product_masterから検索
                 pm_result = supabase.table("product_master").select("product_name").eq("common_code", common_code).execute()
                 if pm_result.data and pm_result.data[0].get('product_name'):
-                    potential_name = pm_result.data[0]['product_name']
-                    # Check for garbled characters
-                    if '���' in potential_name or '�' in potential_name:
-                        product_name = f"商品{common_code}"  # Clean default
-                    else:
-                        product_name = potential_name
+                    product_name = pm_result.data[0]['product_name']
                 else:
                     # 2. choice_code_mappingから検索（フォールバック）
                     ccm_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
                     if ccm_result.data and ccm_result.data[0].get('product_name'):
-                        potential_name = ccm_result.data[0]['product_name']
-                        # Check for garbled characters
-                        if '���' in potential_name or '�' in potential_name:
-                            product_name = f"商品{common_code}"  # Clean default without underscore
-                        else:
-                            product_name = potential_name
+                        product_name = ccm_result.data[0]['product_name']
                     else:
-                        # Check if garbled text exists
-                        if pm_result.data and pm_result.data[0].get('product_name'):
-                            potential_name = pm_result.data[0]['product_name']
-                            # If contains garbled characters, don't use it
-                            if '���' in potential_name or '�' in potential_name:
-                                product_name = f"商品{common_code}"  # Clean default without underscore
-                            else:
-                                product_name = potential_name
-                        else:
-                            product_name = f"商品{common_code}"  # Clean default without underscore
+                        product_name = f"商品_{common_code}"  # デフォルト名
             
             # アイテムデータを拡張
             enhanced_item = item.copy()
@@ -363,18 +344,18 @@ async def search_sales(
         end_date = datetime.now(pytz.timezone('Asia/Tokyo')).date()
         start_date = end_date - timedelta(days=days)
         
-        # 基本クエリ（全件取得）
-        query = supabase.table('order_items').select('*, orders(order_date, created_at, id)')
-        response = query.execute()
+        # 基本クエリ
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, created_at, orders(order_date, created_at, id)'
+        )
         
-        # 日付でフィルタリング（Python側）
-        items = []
-        if response.data:
-            for item in response.data:
-                if item.get('orders') and item['orders'].get('order_date'):
-                    order_date = item['orders']['order_date']
-                    if str(start_date) <= order_date <= str(end_date):
-                        items.append(item)
+        # 日付フィルター
+        query = query.gte('orders.order_date', str(start_date))
+        query = query.lte('orders.order_date', str(end_date))
+        
+        # データ取得
+        response = query.execute()
+        items = response.data if response.data else []
         
         # 商品フィルター
         if product and items:
@@ -421,67 +402,16 @@ async def search_sales(
             price = safe_float(item.get('price', 0))
             quantity = safe_int(item.get('quantity', 0))
             
-            # マッピングシステムを使用して商品名を取得
-            product_name = ''
-            choice_code = item.get('choice_code', '') or ''
-            common_code = ''
-            
-            try:
-                # Step 1: 共通コードを取得
-                # 1-a. choice_codeがある場合、choice_code_mappingから共通コードを取得
-                if choice_code:
-                    ccm_result = supabase.table("choice_code_mapping").select("product_name, common_code").eq("choice_info->>choice_code", choice_code).execute()
-                    if ccm_result.data and ccm_result.data[0].get('common_code'):
-                        common_code = ccm_result.data[0]['common_code']
-                        product_name = ccm_result.data[0].get('product_name', '')
-                
-                # 1-b. choice_codeで見つからない場合、product_codeでproduct_masterから共通コードを取得
-                if not common_code and code != 'unknown':
-                    pm_result = supabase.table("product_master").select("product_name, common_code").eq("rakuten_sku", code).execute()
-                    if pm_result.data and pm_result.data[0].get('common_code'):
-                        common_code = pm_result.data[0]['common_code']
-                        product_name = pm_result.data[0].get('product_name', '')
-                
-                # Step 2: 共通コードから商品名を取得（choice_code_mappingのみ）
-                if common_code and not product_name:
-                    ccm_name_result = supabase.table("choice_code_mapping").select("product_name").eq("common_code", common_code).execute()
-                    if ccm_name_result.data and ccm_name_result.data[0].get('product_name'):
-                        product_name = ccm_name_result.data[0]['product_name']
-                
-                # Step 3: 最終フォールバック
-                if not product_name:
-                    if common_code:
-                        product_name = f"商品_{common_code}"
-                    else:
-                        product_name = item.get('product_name', '') or f"商品_{code}"
-                    
-            except Exception:
-                # エラー時のフォールバック
-                product_name = item.get('product_name', '') or f"商品_{code}"
-            
             if code not in product_summary:
                 product_summary[code] = {
                     'product_code': code,
-                    'product_name': product_name,
+                    'product_name': item.get('product_name', '') or '',
                     'total_quantity': 0,
-                    'quantity': 0,  # フロントエンド互換性
-                    'total_amount': 0.0,
-                    'orders_count': 0,  # フロントエンド互換性
-                    'order_count': 0
+                    'total_amount': 0.0
                 }
             
             product_summary[code]['total_quantity'] += quantity
-            product_summary[code]['quantity'] += quantity  # フロントエンド互換性
             product_summary[code]['total_amount'] += price * quantity
-            product_summary[code]['orders_count'] += 1  # フロントエンド互換性
-            product_summary[code]['order_count'] += 1
-        
-        # 平均価格計算
-        for product in product_summary.values():
-            if product['quantity'] > 0:
-                product['average_price'] = product['total_amount'] / product['quantity']
-            else:
-                product['average_price'] = 0
         
         # ソート（売上金額順）
         sorted_products = sorted(product_summary.values(), key=lambda x: x['total_amount'], reverse=True)
@@ -546,101 +476,48 @@ async def sales_dashboard(
         if not start_date:
             start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
         
-        # マッピングデータを事前に一括取得（パフォーマンス改善）
-        choice_mapping_response = supabase.table("choice_code_mapping").select("*").execute()
-        product_master_response = supabase.table("product_master").select("*").execute()
+        # order_itemsから売上データを取得（ordersテーブルと結合して注文日でフィルタ）
+        query = supabase.table('order_items').select(
+            'quantity, price, product_code, product_name, created_at, orders(order_date, created_at, id)'
+        ).gte('orders.order_date', start_date).lte('orders.order_date', end_date)
         
-        # メモリ内辞書に変換（高速検索用）
-        choice_map = {}
-        if choice_mapping_response.data:
-            for item in choice_mapping_response.data:
-                if item.get('choice_info') and item['choice_info'].get('choice_code'):
-                    choice_map[item['choice_info']['choice_code']] = {
-                        'product_name': item.get('product_name', ''),
-                        'common_code': item.get('common_code', '')
-                    }
-        
-        product_map = {}
-        if product_master_response.data:
-            for item in product_master_response.data:
-                if item.get('rakuten_sku'):
-                    product_map[item['rakuten_sku']] = {
-                        'product_name': item.get('product_name', ''),
-                        'common_code': item.get('common_code', '')
-                    }
-        
-        # 2段階クエリ：期間フィルタリングの確実な実行
-        # 1. 期間内のordersを取得
-        orders_query = supabase.table('orders').select('id, order_date').gte('order_date', start_date).lte('order_date', end_date)
-        orders_response = orders_query.execute()
-        
-        if not orders_response.data:
-            # 該当期間にデータなし
-            all_sales = []
-        else:
-            # 2. 該当するorder_idsでorder_itemsを取得
-            order_ids = [order['id'] for order in orders_response.data]
-            items_query = supabase.table('order_items').select('*').in_('order_id', order_ids)
-            items_response = items_query.execute()
-            
-            all_sales = items_response.data if items_response.data else []
+        all_response = query.execute()
+        all_sales = all_response.data if all_response.data else []
         
         # 統計計算（安全な処理）
         total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
         total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
         
-        # 注文数計算（2段階クエリ対応）
-        unique_orders = len(orders_response.data) if orders_response.data else 0
+        # ordersフィールドのNone対応
+        order_ids = set()
+        for item in all_sales:
+            orders_data = item.get('orders')
+            if orders_data and isinstance(orders_data, dict):
+                order_id = orders_data.get('id')
+                if order_id:
+                    order_ids.add(order_id)
+        unique_orders = len(order_ids)
         
         # 商品別集約
         product_sales = {}
         for item in all_sales:
-            rakuten_sku = item.get('product_code', 'unknown')
+            product_code = item.get('product_code', 'unknown')
+            product_name = item.get('product_name', '商品名未設定')
             quantity = int(item.get('quantity', 0))
             amount = float(item.get('price', 0)) * quantity
             
-            # 商品名とcommon_codeを取得（メモリ内辞書から高速検索）
-            product_name = ''
-            common_code = ''
-            choice_code = item.get('choice_code', '') or ''
-            product_code = item.get('product_code', 'unknown')
-            
-            # 優先順位1: choice_codeがある場合、メモリ内辞書から検索
-            if choice_code and choice_code in choice_map:
-                product_name = choice_map[choice_code]['product_name']
-                common_code = choice_map[choice_code]['common_code']
-            
-            # 優先順位2: product_codeでメモリ内辞書から検索
-            if not product_name and product_code != 'unknown' and product_code in product_map:
-                product_name = product_map[product_code]['product_name']
-                common_code = product_map[product_code]['common_code']
-            
-            # フォールバック: order_itemsのproduct_nameを使用
-            if not product_name:
-                product_name = item.get('product_name', '') or f"商品_{product_code}"
-            
-            if rakuten_sku not in product_sales:
-                product_sales[rakuten_sku] = {
-                    "product_code": rakuten_sku,
-                    "common_code": common_code,
+            if product_code not in product_sales:
+                product_sales[product_code] = {
+                    "product_code": product_code,
                     "product_name": product_name,
                     "total_amount": 0,
-                    "quantity": 0,
-                    "orders_count": 0,
+                    "total_quantity": 0,
                     "order_count": 0
                 }
             
-            product_sales[rakuten_sku]["total_amount"] += amount
-            product_sales[rakuten_sku]["quantity"] += quantity
-            product_sales[rakuten_sku]["orders_count"] += 1
-            product_sales[rakuten_sku]["order_count"] += 1
-        
-        # 平均価格計算
-        for product in product_sales.values():
-            if product["quantity"] > 0:
-                product["average_price"] = product["total_amount"] / product["quantity"]
-            else:
-                product["average_price"] = 0
+            product_sales[product_code]["total_amount"] += amount
+            product_sales[product_code]["total_quantity"] += quantity
+            product_sales[product_code]["order_count"] += 1
         
         # ソートとページネーション
         sorted_products = sorted(product_sales.values(), key=lambda x: x["total_amount"], reverse=True)
@@ -655,7 +532,6 @@ async def sales_dashboard(
                 "end_date": end_date
             },
             "summary": {
-                "total_sales": total_amount,
                 "total_amount": total_amount,
                 "total_quantity": total_quantity,
                 "total_orders": unique_orders,
@@ -3049,100 +2925,6 @@ async def get_sales_summary(
             'message': str(e)
         }
 
-@app.get("/api/sales/ranking")
-async def get_sales_ranking(
-    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)"),
-    limit: int = Query(20, description="表示件数")
-):
-    """
-    売上ランキング
-    売上高・数量・注文数でランキング表示
-    """
-    try:
-        # デフォルト期間設定
-        if not end_date:
-            end_date = datetime.now().strftime('%Y-%m-%d')
-        if not start_date:
-            start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
-        
-        # 商品別売上データ取得（既存のget_product_salesエンドポイントと同じロジック）
-        query = supabase.table("order_items").select(
-            "*",
-            "orders!inner(created_at)"
-        )
-        query = query.gte("orders.created_at", start_date)
-        query = query.lte("orders.created_at", end_date)
-        
-        response = query.execute()
-        items = response.data if response.data else []
-        
-        # 商品別集計
-        product_sales = {}
-        
-        for item in items:
-            product_code = item.get('product_code', 'unknown')
-            product_name = item.get('product_name', '')
-            quantity = int(item.get('quantity', 0))
-            price = float(item.get('price', 0))
-            total_amount = quantity * price
-            
-            if product_code not in product_sales:
-                product_sales[product_code] = {
-                    'product_code': product_code,
-                    'product_name': product_name,
-                    'quantity': 0,
-                    'total_amount': 0,
-                    'orders_count': 0,
-                    'order_ids': set()
-                }
-            
-            product_sales[product_code]['quantity'] += quantity
-            product_sales[product_code]['total_amount'] += total_amount
-            
-            # 注文IDを取得してユニーク注文数をカウント
-            orders_data = item.get('orders', {})
-            if orders_data and isinstance(orders_data, dict):
-                order_id = orders_data.get('id') or item.get('order_id')
-                if order_id:
-                    product_sales[product_code]['order_ids'].add(order_id)
-        
-        # setをリストに変換し、注文数を設定、平均価格計算
-        products = []
-        for product_data in product_sales.values():
-            product_data['orders_count'] = len(product_data['order_ids'])
-            # 平均価格計算
-            if product_data['quantity'] > 0:
-                product_data['average_price'] = product_data['total_amount'] / product_data['quantity']
-            else:
-                product_data['average_price'] = 0
-            del product_data['order_ids']  # setは JSON serializable でないため削除
-            products.append(product_data)
-        
-        # ランキング作成（上位limit件）
-        rankings = {
-            'by_amount': sorted(products, key=lambda x: x['total_amount'], reverse=True)[:limit],
-            'by_quantity': sorted(products, key=lambda x: x['quantity'], reverse=True)[:limit],
-            'by_orders': sorted(products, key=lambda x: x['orders_count'], reverse=True)[:limit]
-        }
-        
-        return {
-            'status': 'success',
-            'period': {
-                'start_date': start_date,
-                'end_date': end_date,
-                'days': (datetime.strptime(end_date, '%Y-%m-%d') - datetime.strptime(start_date, '%Y-%m-%d')).days + 1
-            },
-            'rankings': rankings
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in get_sales_ranking: {str(e)}")
-        return {
-            'status': 'error',
-            'message': str(e)
-        }
-
 # ===== 新規: プラットフォーム別売上集計API =====
 @app.get("/api/sales/platform_summary")
 async def platform_sales_summary(
@@ -3447,7 +3229,6 @@ async def sales_dashboard(request: Request):
     <script>
         // 初期設定
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOMContentLoaded triggered');
             const today = new Date();
             const thirtyDaysAgo = new Date(today);
             thirtyDaysAgo.setDate(today.getDate() - 30);
@@ -3455,159 +3236,72 @@ async def sales_dashboard(request: Request):
             document.getElementById('endDate').value = today.toISOString().split('T')[0];
             document.getElementById('startDate').value = thirtyDaysAgo.toISOString().split('T')[0];
             
-            console.log('About to call loadData()');
             loadData();
         });
 
         async function loadData() {
-            console.log('loadData() called');
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
             const groupBy = document.getElementById('groupBy').value;
             
-            console.log('Date range:', startDate, 'to', endDate);
-            
-            // 日数を計算
-            const start = new Date(startDate);
-            const end = new Date(endDate);
-            const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-            
-            // 売上データ取得
-            const apiUrl = `${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`;
-            console.log('Fetching:', apiUrl);
-            
+            // 商品別売上取得
             try {
-                const response = await fetch(apiUrl);
-                console.log('Response status:', response.status);
+                const response = await fetch(`${window.location.origin}/api/sales/products?start_date=${startDate}&end_date=${endDate}`);
                 const data = await response.json();
-                console.log('API response data:', data);
                 
                 if (data.status === 'success') {
-                    // サマリー更新 - 実際のAPIレスポンス構造に合わせる
-                    const summary = data.summary || {};
-                    updateSummary({
-                        total_sales: summary.total_amount || 0,
-                        total_quantity: summary.total_quantity || 0,
-                        total_orders: summary.total_orders || 0,
-                        unique_products: summary.unique_products || 0
-                    });
-                    
-                    // 商品テーブル更新 - data.itemsを使用
-                    if (data.items && Array.isArray(data.items)) {
-                        updateProductsTable(data.items);
-                    } else {
-                        updateProductsTable([]);
-                    }
-                    
-                    // タイムラインは空（このAPIには期間別データなし）
-                    updateTimelineTable([]);
+                    updateSummary(data.summary);
+                    updateProductsTable(data.products);
                 }
             } catch (error) {
-                console.error('Error loading data:', error);
-                // エラー時は空データで更新
-                updateSummary({
-                    total_sales: 0,
-                    total_quantity: 0,
-                    total_orders: 0,
-                    unique_products: 0
-                });
+                console.error('Error loading products:', error);
+            }
+            
+            // 期間別売上取得
+            try {
+                const response = await fetch(`${window.location.origin}/api/sales/summary?start_date=${startDate}&end_date=${endDate}&group_by=${groupBy}`);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    updateTimelineTable(data.timeline);
+                }
+            } catch (error) {
+                console.error('Error loading timeline:', error);
             }
         }
 
         function updateSummary(summary) {
-            console.log('updateSummary called with:', summary);
-            try {
-                const safeNumber = (value) => {
-                    const num = Number(value) || 0;
-                    console.log('safeNumber input:', value, '-> output:', num);
-                    return num;
-                };
-                
-                // 各要素を個別にエラーハンドリング
-                try {
-                    const totalSales = safeNumber(summary?.total_sales || 0);
-                    document.getElementById('totalSales').textContent = totalSales.toLocaleString();
-                } catch (e) { 
-                    console.error('totalSales error:', e);
-                    document.getElementById('totalSales').textContent = '0';
-                }
-                
-                try {
-                    const totalQuantity = safeNumber(summary?.total_quantity || 0);
-                    document.getElementById('totalQuantity').textContent = totalQuantity.toLocaleString();
-                } catch (e) { 
-                    console.error('totalQuantity error:', e);
-                    document.getElementById('totalQuantity').textContent = '0';
-                }
-                
-                try {
-                    const totalOrders = safeNumber(summary?.total_orders || 0);
-                    document.getElementById('totalOrders').textContent = totalOrders.toLocaleString();
-                } catch (e) { 
-                    console.error('totalOrders error:', e);
-                    document.getElementById('totalOrders').textContent = '0';
-                }
-                
-                try {
-                    const uniqueProducts = safeNumber(summary?.unique_products || 0);
-                    document.getElementById('uniqueProducts').textContent = uniqueProducts.toLocaleString();
-                } catch (e) { 
-                    console.error('uniqueProducts error:', e);
-                    document.getElementById('uniqueProducts').textContent = '0';
-                }
-            } catch (error) {
-                console.error('updateSummary error:', error);
-            }
+            document.getElementById('totalSales').textContent = summary.total_sales.toLocaleString();
+            document.getElementById('totalQuantity').textContent = summary.total_quantity.toLocaleString();
+            document.getElementById('totalOrders').textContent = summary.total_orders.toLocaleString();
+            document.getElementById('uniqueProducts').textContent = summary.unique_products.toLocaleString();
         }
 
         function updateProductsTable(products) {
             const tbody = document.getElementById('productsBody');
-            if (!products || products.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7">データがありません</td></tr>';
-                return;
-            }
-            const safeNumber = (value) => Number(value) || 0;
-            tbody.innerHTML = products.map(product => {
-                const quantity = safeNumber(product.quantity || product.total_quantity);
-                const totalAmount = safeNumber(product.total_amount);
-                const orderCount = safeNumber(product.orders_count || product.order_count);
-                const avgPrice = safeNumber(product.average_price);
-                
-                return `
+            tbody.innerHTML = products.map(product => `
                 <tr>
-                    <td>${product.product_code || ''}</td>
-                    <td>${product.product_name || ''}</td>
+                    <td>${product.product_code}</td>
+                    <td>${product.product_name}</td>
                     <td>${product.common_code || '-'}</td>
-                    <td class="number">${quantity.toLocaleString()}</td>
-                    <td class="number">¥${totalAmount.toLocaleString()}</td>
-                    <td class="number">${orderCount.toLocaleString()}</td>
-                    <td class="number">¥${Math.round(avgPrice).toLocaleString()}</td>
+                    <td class="number">${product.quantity.toLocaleString()}</td>
+                    <td class="number">¥${product.total_amount.toLocaleString()}</td>
+                    <td class="number">${product.orders_count.toLocaleString()}</td>
+                    <td class="number">¥${Math.round(product.average_price).toLocaleString()}</td>
                 </tr>
-                `;
-            }).join('');
+            `).join('');
         }
 
         function updateTimelineTable(timeline) {
             const tbody = document.getElementById('timelineBody');
-            if (!timeline || timeline.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4">データがありません</td></tr>';
-                return;
-            }
-            const safeNumber = (value) => Number(value) || 0;
-            tbody.innerHTML = timeline.map(period => {
-                const totalAmount = safeNumber(period.total_amount);
-                const quantity = safeNumber(period.quantity);
-                const ordersCount = safeNumber(period.orders_count);
-                
-                return `
+            tbody.innerHTML = timeline.map(period => `
                 <tr>
-                    <td>${period.period || ''}</td>
-                    <td class="number">¥${totalAmount.toLocaleString()}</td>
-                    <td class="number">${quantity.toLocaleString()}</td>
-                    <td class="number">${ordersCount.toLocaleString()}</td>
+                    <td>${period.period}</td>
+                    <td class="number">¥${period.total_amount.toLocaleString()}</td>
+                    <td class="number">${period.quantity.toLocaleString()}</td>
+                    <td class="number">${period.orders_count.toLocaleString()}</td>
                 </tr>
-                `;
-            }).join('');
+            `).join('');
         }
 
         function showTab(tabName) {
@@ -3653,12 +3347,9 @@ async def inventory_dashboard(low_stock_threshold: int = 5):
                 "product_name"
             ).eq("common_code", common_code).limit(1).execute()
             
-            product_name = f"商品{common_code}"  # Default clean name
+            product_name = "商品名未設定"
             if product_result.data:
-                potential_name = product_result.data[0].get("product_name", "")
-                # Check for garbled characters
-                if potential_name and not ('���' in potential_name or '�' in potential_name):
-                    product_name = potential_name
+                product_name = product_result.data[0].get("product_name", "商品名未設定")
             else:
                 # 2. choice_code_mappingから商品名を検索（選択肢コードの場合）
                 choice_result = supabase.table("choice_code_mapping").select(
@@ -3666,10 +3357,7 @@ async def inventory_dashboard(low_stock_threshold: int = 5):
                 ).eq("common_code", common_code).limit(1).execute()
                 
                 if choice_result.data:
-                    potential_name = choice_result.data[0].get("product_name", "")
-                    # Check for garbled characters
-                    if potential_name and not ('���' in potential_name or '�' in potential_name):
-                        product_name = potential_name
+                    product_name = choice_result.data[0].get("product_name", "商品名未設定")
             
             enhanced_inventory.append({
                 "common_code": common_code,
@@ -3736,103 +3424,6 @@ async def mapping_failures(limit: int = 50):
     except Exception as e:
         logger.error(f"mapping failures error: {str(e)}")
         return {"status": "error", "message": str(e)}
-
-@app.get("/api/sales_search")
-async def sales_search(
-    days: int = Query(7, description="過去何日間のデータを取得するか"),
-    platform: str = Query(None, description="プラットフォーム名でフィルター")
-):
-    """売上検索API - 指定期間の売上データを取得"""
-    try:
-        if not supabase:
-            return {"status": "error", "message": "Database connection not configured"}
-        
-        # 期間の計算
-        end_date = datetime.now(pytz.timezone('Asia/Tokyo')).date()
-        start_date = end_date - timedelta(days=days)
-        
-        # platform_daily_salesテーブルから売上データを取得
-        query = supabase.table('platform_daily_sales').select('*')
-        query = query.gte('sales_date', start_date.isoformat())
-        query = query.lte('sales_date', end_date.isoformat())
-        
-        if platform:
-            query = query.eq('platform', platform)
-        
-        query = query.order('sales_date', desc=True)
-        result = query.execute()
-        
-        if not result.data:
-            # データがない場合、ordersテーブルから集計
-            orders_query = supabase.table('orders').select(
-                'order_date, total_amount, platform'
-            ).gte('order_date', start_date.isoformat()).lte('order_date', end_date.isoformat())
-            
-            if platform:
-                orders_query = orders_query.eq('platform', platform)
-            
-            orders_result = orders_query.execute()
-            
-            # 日付別・プラットフォーム別に集計
-            daily_sales = {}
-            if orders_result.data:
-                for order in orders_result.data:
-                    order_date = order.get('order_date', '')[:10]
-                    platform_name = order.get('platform', 'unknown')
-                    amount = float(order.get('total_amount', 0))
-                    
-                    key = f"{order_date}_{platform_name}"
-                    if key not in daily_sales:
-                        daily_sales[key] = {
-                            'sales_date': order_date,
-                            'platform': platform_name,
-                            'total_amount': 0,
-                            'order_count': 0
-                        }
-                    daily_sales[key]['total_amount'] += amount
-                    daily_sales[key]['order_count'] += 1
-            
-            sales_data = list(daily_sales.values())
-        else:
-            sales_data = result.data
-        
-        # 統計情報の計算
-        total_amount = sum(float(item.get('total_amount', 0)) for item in sales_data)
-        total_orders = sum(int(item.get('order_count', 0)) for item in sales_data)
-        
-        # プラットフォーム別集計
-        platform_summary = {}
-        for item in sales_data:
-            p = item.get('platform', 'unknown')
-            if p not in platform_summary:
-                platform_summary[p] = {'amount': 0, 'count': 0}
-            platform_summary[p]['amount'] += float(item.get('total_amount', 0))
-            platform_summary[p]['count'] += int(item.get('order_count', 0))
-        
-        return {
-            "status": "success",
-            "period": {
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "days": days
-            },
-            "summary": {
-                "total_amount": round(total_amount, 2),
-                "total_orders": total_orders,
-                "average_per_day": round(total_amount / days, 2) if days > 0 else 0,
-                "platform_summary": platform_summary
-            },
-            "daily_sales": sales_data,
-            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Sales search error: {str(e)}")
-        return {
-            "status": "error",
-            "message": str(e),
-            "timestamp": datetime.now(pytz.timezone('Asia/Tokyo')).isoformat()
-        }
 
 @app.get("/inventory-dashboard-html")
 async def inventory_dashboard_html(request: Request):
@@ -4025,196 +3616,6 @@ async def inventory_dashboard_html(request: Request):
     except Exception as e:
         logger.error(f"inventory dashboard HTML error: {str(e)}")
         return HTMLResponse(content=f"<h1>エラー</h1><p>{str(e)}</p>", status_code=500)
-
-# =============================================================================
-# Amazon API エンドポイント
-# =============================================================================
-
-@app.get("/api/amazon/sales/dashboard")
-async def amazon_sales_dashboard(
-    start_date: Optional[str] = Query(None, description="開始日 (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="終了日 (YYYY-MM-DD)")
-):
-    """Amazon売上ダッシュボード"""
-    try:
-        from datetime import date, timedelta
-        from collections import defaultdict
-        
-        # デフォルト期間設定（過去30日）
-        if not end_date:
-            end_date = date.today().strftime('%Y-%m-%d')
-        if not start_date:
-            start_date = (date.today() - timedelta(days=30)).strftime('%Y-%m-%d')
-            
-        logger.info(f"Fetching Amazon sales data from {start_date} to {end_date}")
-        
-        # 注文データを取得
-        orders_query = supabase.table("amazon_orders").select("*").gte("purchase_date", start_date).lte("purchase_date", end_date)
-        orders_response = orders_query.execute()
-        orders = orders_response.data if orders_response.data else []
-        
-        if not orders:
-            return {
-                "period": {"start": start_date, "end": end_date},
-                "summary": {"total_sales": 0, "total_orders": 0, "total_items": 0, "average_order_value": 0},
-                "daily_sales": [],
-                "top_products": [],
-                "fulfillment_breakdown": {},
-                "marketplace_breakdown": {}
-            }
-            
-        # 注文IDのリストを作成
-        order_ids = [order["id"] for order in orders]
-        
-        # 注文商品データを取得
-        items_query = supabase.table("amazon_order_items").select("*").in_("order_id", order_ids)
-        items_response = items_query.execute()
-        items = items_response.data if items_response.data else []
-        
-        # 集計処理
-        total_sales = sum(float(order.get("order_total", 0)) for order in orders)
-        total_items = sum(item.get("quantity_ordered", 0) for item in items)
-        
-        # 日別売上集計
-        daily_sales = defaultdict(lambda: {"sales": 0, "orders": 0, "items": 0})
-        product_sales = defaultdict(lambda: {"quantity": 0, "sales": 0, "product_name": ""})
-        fulfillment_breakdown = defaultdict(lambda: {"orders": 0, "sales": 0})
-        
-        for order in orders:
-            order_date = order["purchase_date"][:10]
-            order_total = float(order.get("order_total", 0))
-            
-            daily_sales[order_date]["orders"] += 1
-            daily_sales[order_date]["sales"] += order_total
-            
-            fulfillment = order.get("fulfillment_channel", "Unknown")
-            fulfillment_breakdown[fulfillment]["orders"] += 1
-            fulfillment_breakdown[fulfillment]["sales"] += order_total
-            
-        for item in items:
-            sku = item.get("sku", "Unknown")
-            quantity = item.get("quantity_ordered", 0)
-            item_price = float(item.get("item_price", 0))
-            product_name = item.get("product_name", sku)
-            
-            product_sales[sku]["quantity"] += quantity
-            product_sales[sku]["sales"] += item_price
-            product_sales[sku]["product_name"] = product_name
-            
-            order_date = next((o["purchase_date"][:10] for o in orders if o["id"] == item["order_id"]), None)
-            if order_date:
-                daily_sales[order_date]["items"] += quantity
-        
-        # レスポンス作成
-        return {
-            "period": {"start": start_date, "end": end_date},
-            "summary": {
-                "total_sales": round(total_sales, 2),
-                "total_orders": len(orders),
-                "total_items": total_items,
-                "average_order_value": round(total_sales / len(orders), 2) if orders else 0
-            },
-            "daily_sales": [{"date": d, **data} for d, data in sorted(daily_sales.items())],
-            "top_products": [{"sku": sku, **data} for sku, data in sorted(product_sales.items(), key=lambda x: x[1]["sales"], reverse=True)[:10]],
-            "fulfillment_breakdown": dict(fulfillment_breakdown)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in Amazon sales dashboard: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/amazon/inventory/status")
-async def amazon_inventory_status():
-    """Amazon在庫状況サマリー"""
-    try:
-        # FBA在庫を取得
-        fba_response = supabase.table("amazon_fba_inventory").select("*").execute()
-        fba_items = fba_response.data if fba_response.data else []
-        
-        total_fba = sum(item.get("fulfillable_quantity", 0) for item in fba_items)
-        total_inbound = sum(
-            item.get("inbound_working_quantity", 0) + 
-            item.get("inbound_shipped_quantity", 0) + 
-            item.get("inbound_receiving_quantity", 0)
-            for item in fba_items
-        )
-        
-        # 低在庫判定（10個以下）
-        low_stock_items = [
-            {
-                "sku": item.get("sku"),
-                "product_name": item.get("product_name"),
-                "current_stock": item.get("fulfillable_quantity", 0),
-                "inbound": (item.get("inbound_working_quantity", 0) + 
-                           item.get("inbound_shipped_quantity", 0) + 
-                           item.get("inbound_receiving_quantity", 0))
-            }
-            for item in fba_items
-            if item.get("fulfillable_quantity", 0) <= 10
-        ]
-        
-        return {
-            "summary": {
-                "total_fba_stock": total_fba,
-                "total_inbound": total_inbound,
-                "total_skus": len(set(item.get("sku") for item in fba_items)),
-                "low_stock_count": len(low_stock_items)
-            },
-            "low_stock_items": low_stock_items[:20]
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in Amazon inventory status: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/sales/platform_comparison")
-async def platform_sales_comparison():
-    """楽天とAmazonの売上比較"""
-    try:
-        from datetime import date
-        
-        # 今月のデータを取得
-        today = date.today()
-        month_start = date(today.year, today.month, 1).strftime('%Y-%m-%d')
-        month_end = today.strftime('%Y-%m-%d')
-        
-        # Amazon売上
-        amazon_orders = supabase.table("amazon_orders").select("order_total").gte("purchase_date", month_start).lte("purchase_date", month_end).execute()
-        amazon_total = sum(float(order.get("order_total", 0)) for order in (amazon_orders.data or []))
-        
-        # 楽天売上
-        rakuten_query = supabase.table('order_items').select(
-            'quantity, price, orders(order_date)'
-        ).gte('orders.order_date', month_start).lte('orders.order_date', month_end)
-        rakuten_response = rakuten_query.execute()
-        rakuten_items = rakuten_response.data if rakuten_response.data else []
-        
-        rakuten_total = sum(
-            item.get("quantity", 0) * float(item.get("price", 0))
-            for item in rakuten_items
-            if item.get("orders")
-        )
-        
-        total_sales = amazon_total + rakuten_total
-        
-        return {
-            "period": {"start": month_start, "end": month_end},
-            "platforms": {
-                "amazon": {
-                    "sales": round(amazon_total, 2),
-                    "percentage": round((amazon_total / total_sales * 100), 1) if total_sales > 0 else 0
-                },
-                "rakuten": {
-                    "sales": round(rakuten_total, 2),
-                    "percentage": round((rakuten_total / total_sales * 100), 1) if total_sales > 0 else 0
-                }
-            },
-            "total_sales": round(total_sales, 2)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in platform comparison: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
