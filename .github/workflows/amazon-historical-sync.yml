@@ -1,0 +1,29 @@
+name: Amazon Historical Sync (June 1 - Today)
+
+on:
+  workflow_dispatch:  # 手動実行のみ
+
+jobs:
+  amazon-historical-sync:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Amazon Historical Sync (June 1 - Today)
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        AMAZON_KEY: ${{ secrets.AMAZON_KEY }}
+        AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
+      run: python amazon_sp_api_sync.py

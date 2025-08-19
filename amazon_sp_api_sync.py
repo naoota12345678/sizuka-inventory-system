@@ -514,13 +514,20 @@ def main():
         # Amazon同期実行
         sync = AmazonSync()
         
-        # 6月1日から今日までの期間を設定
-        from datetime import date
-        start_date = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
-        end_date = datetime.now(timezone.utc)
-        
-        logger.info(f"Historical sync: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
-        success = sync.sync_recent_orders(start_date_override=start_date, end_date_override=end_date)
+        # コマンドライン引数で動作モード選択
+        import sys
+        if len(sys.argv) > 1 and sys.argv[1] == 'daily':
+            # 毎日同期: 過去1日分のみ
+            logger.info("Daily sync mode: past 1 day")
+            success = sync.sync_recent_orders(days=1)
+        else:
+            # 歴史同期: 6月1日から今日まで
+            from datetime import date
+            start_date = datetime(2025, 6, 1, 0, 0, 0, tzinfo=timezone.utc)
+            end_date = datetime.now(timezone.utc)
+            
+            logger.info(f"Historical sync: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+            success = sync.sync_recent_orders(start_date_override=start_date, end_date_override=end_date)
         
         if success:
             logger.info("Amazon同期処理が正常に完了しました")

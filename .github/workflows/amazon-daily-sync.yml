@@ -1,15 +1,13 @@
-name: Daily Sync and Keep Alive
+name: Amazon Daily Sync
 
 on:
   schedule:
     # 毎日日本時間9時に実行
     - cron: '0 0 * * *'  # UTC 0:00 = JST 9:00
-    # 6時間ごとにKeep Alive
-    - cron: '0 */6 * * *'
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
-  sync-orders:
+  amazon-daily-sync:
     runs-on: ubuntu-latest
     
     steps:
@@ -25,18 +23,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Keep Supabase Alive
+    - name: Amazon Daily Sync
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-      run: python keep_alive.py
-    
-    - name: Sync Rakuten Orders
-      if: github.event.schedule == '0 0 * * *'
-      env:
-        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        RAKUTEN_SERVICE_SECRET: ${{ secrets.RAKUTEN_SERVICE_SECRET }}
-        RAKUTEN_LICENSE_KEY: ${{ secrets.RAKUTEN_LICENSE_KEY }}
-      run: python daily_sync.py
-    
+        AMAZON_KEY: ${{ secrets.AMAZON_KEY }}
+        AMAZON_SECRET: ${{ secrets.AMAZON_SECRET }}
+      run: python amazon_sp_api_sync.py daily
