@@ -511,6 +511,12 @@ class AmazonSync:
 def main():
     """メイン処理"""
     try:
+        logger.info("=== Amazon Sync Started ===")
+        logger.info(f"SUPABASE_URL: {'SET' if SUPABASE_URL else 'NOT SET'}")
+        logger.info(f"SUPABASE_KEY: {'SET' if SUPABASE_KEY else 'NOT SET'}")
+        logger.info(f"AMAZON_KEY: {'SET' if AMAZON_KEY else 'NOT SET'}")
+        logger.info(f"AMAZON_SECRET: {'SET' if AMAZON_SECRET else 'NOT SET'}")
+        
         # Amazon同期実行
         sync = AmazonSync()
         
@@ -530,14 +536,16 @@ def main():
             success = sync.sync_recent_orders(start_date_override=start_date, end_date_override=end_date)
         
         if success:
-            logger.info("Amazon同期処理が正常に完了しました")
+            logger.info("=== Amazon Sync Completed Successfully ===")
             return 0
         else:
-            logger.error("Amazon同期処理でエラーが発生しました")
+            logger.error("=== Amazon Sync Failed ===")
             return 1
             
     except Exception as e:
-        logger.error(f"実行エラー: {str(e)}")
+        logger.error(f"=== Amazon Sync Exception: {str(e)} ===")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return 1
 
 
