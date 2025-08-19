@@ -56,23 +56,40 @@ def sync_recent_orders(days=1):
         }
         
         # リクエストボディ（JSON形式）
-        request_body = {
+        # まず注文番号リストを取得するためのリクエスト
+        search_request = {
             "orderSearchModel": {
                 "dateType": 1,  # 1: 注文日
                 "startDate": start_date.strftime('%Y-%m-%d'),
-                "endDate": end_date.strftime('%Y-%m-%d'),
-                "orderProgressList": [100, 200, 300, 400, 500, 600, 700, 800, 900],  # 全ステータス
-                "settlementMethodList": [],  # 全決済方法
-                "merchantId": "",  # 店舗ID（空の場合は全店舗）
-                "searchKeywordType": 1,
-                "searchKeyword": "",
-                "searchOrderItemKeywordType": 1,
-                "searchOrderItemKeyword": "",
-                "mailSendType": [],
-                "phoneNumberType": 1,
-                "phoneNumber": "",
-                "couponType": []
+                "endDate": end_date.strftime('%Y-%m-%d')
             }
+        }
+        
+        # 注文番号リストを取得
+        search_response = requests.post(
+            'https://api.rms.rakuten.co.jp/es/2.0/order/searchOrder/',
+            json=search_request,
+            headers=headers,
+            timeout=60
+        )
+        
+        if search_response.status_code != 200:
+            logger.error(f"注文検索API エラー: {search_response.status_code}")
+            logger.error(f"レスポンス内容: {search_response.text[:500]}")
+            return False
+            
+        search_data = search_response.json()
+        order_numbers = search_data.get('orderNumberList', [])
+        
+        if not order_numbers:
+            logger.info("新規注文がありません")
+            return True
+            
+        logger.info(f"取得した注文番号数: {len(order_numbers)}")
+        
+        # 注文詳細を取得するためのリクエスト
+        request_body = {
+            "orderNumberList": order_numbers[:100]  # 最大100件まで
         }
         
         # APIリクエスト送信
