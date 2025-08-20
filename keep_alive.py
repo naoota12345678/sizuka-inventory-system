@@ -41,19 +41,7 @@ def keep_alive():
             'status': 'success'
         }
         
-        # sync_logテーブルがある場合は記録
-        try:
-            supabase.table('sync_log').insert({
-                'sync_type': 'keep_alive',
-                'sync_status': 'completed',
-                'started_at': datetime.now().isoformat(),
-                'completed_at': datetime.now().isoformat(),
-                'total_records': 0,
-                'success_count': 0,
-                'error_count': 0
-            }).execute()
-        except:
-            pass  # sync_logテーブルがない場合はスキップ
+        # Keep aliveは成功（sync_logへの記録は不要）
         
         logger.info(f"Keep alive成功: {datetime.now()}")
         return True
