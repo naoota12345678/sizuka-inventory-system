@@ -30,22 +30,24 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
-# Amazon認証情報
-AMAZON_SELLER_ID = os.getenv('AMAZON_KEY')  # Seller ID
-AMAZON_MWS_AUTH_TOKEN = os.getenv('AMAZON_SECRET')  # MWS Auth Token
-AMAZON_ACCESS_KEY_ID = os.getenv('AMAZON_ACCESS_KEY_ID')  # AWS Access Key ID
-AMAZON_SECRET_ACCESS_KEY = os.getenv('AMAZON_SECRET_ACCESS_KEY')  # AWS Secret Key
+# Amazon SP-API認証情報
+AMAZON_CLIENT_ID = os.getenv('AMAZON_CLIENT_ID')
+AMAZON_CLIENT_SECRET = os.getenv('AMAZON_CLIENT_SECRET') 
+AMAZON_REFRESH_TOKEN = os.getenv('AMAZON_REFRESH_TOKEN')
+AMAZON_MARKETPLACE_ID = os.getenv('AMAZON_MARKETPLACE_ID', 'A1VC38T7YXB528')  # 日本
+AMAZON_REGION = os.getenv('AMAZON_REGION', 'us-west-2')
 
 # 必須環境変数チェック
 if not all([SUPABASE_URL, SUPABASE_KEY]):
     logger.error("Supabase environment variables not set")
     sys.exit(1)
 
-if not all([AMAZON_SELLER_ID, AMAZON_MWS_AUTH_TOKEN]):
-    logger.error("Amazon basic credentials not set")
+if not all([AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_REFRESH_TOKEN]):
+    logger.error("Amazon SP-API credentials not set")
     logger.info("Required environment variables:")
-    logger.info("  AMAZON_KEY (Seller ID)")
-    logger.info("  AMAZON_SECRET (MWS Auth Token)")
+    logger.info("  AMAZON_CLIENT_ID")
+    logger.info("  AMAZON_CLIENT_SECRET") 
+    logger.info("  AMAZON_REFRESH_TOKEN")
     sys.exit(1)
 
 # AWS認証情報はオプション - 基本認証で試行
