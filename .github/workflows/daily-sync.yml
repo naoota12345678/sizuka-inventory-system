@@ -30,7 +30,7 @@ jobs:
       run: python keep_alive.py
     
     - name: Sync Rakuten Orders
-      if: github.event.schedule == '0 0 * * *'
+      if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -39,7 +39,7 @@ jobs:
       run: python daily_sync.py
     
     - name: Sync Amazon Orders
-      if: github.event.schedule == '0 0 * * *'
+      if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
       env:
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
