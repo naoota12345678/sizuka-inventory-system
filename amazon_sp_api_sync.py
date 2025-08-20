@@ -50,27 +50,27 @@ if not all([AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET, AMAZON_REFRESH_TOKEN]):
     logger.info("  AMAZON_REFRESH_TOKEN")
     sys.exit(1)
 
-# AWS認証情報はオプション - 基本認証で試行
-if not AMAZON_ACCESS_KEY_ID or not AMAZON_SECRET_ACCESS_KEY:
-    logger.info("AWS credentials not provided - trying basic MWS authentication")
-    AMAZON_ACCESS_KEY_ID = AMAZON_SELLER_ID  # フォールバック
-    AMAZON_SECRET_ACCESS_KEY = AMAZON_MWS_AUTH_TOKEN  # フォールバック
+# SP-API認証確認完了
+logger.info("Amazon SP-API credentials loaded successfully")
+logger.info(f"Marketplace ID: {AMAZON_MARKETPLACE_ID}")
+logger.info(f"Region: {AMAZON_REGION}")
 
 # Supabaseクライアント初期化
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 class AmazonSync:
-    """Amazon同期クラス（シンプル版）"""
+    """Amazon SP-API同期クラス"""
     
     def __init__(self):
         """初期化"""
-        self.seller_id = AMAZON_SELLER_ID
-        self.mws_auth_token = AMAZON_MWS_AUTH_TOKEN
-        self.access_key_id = AMAZON_ACCESS_KEY_ID
-        self.secret_access_key = AMAZON_SECRET_ACCESS_KEY
-        self.base_url = "https://mws.amazonservices.com"  # Amazon MWS API
-        self.marketplace_id = "A1VC38T7YXB528"  # 日本マーケットプレイス
-        logger.info("Amazon API connection initialized successfully")
+        self.client_id = AMAZON_CLIENT_ID
+        self.client_secret = AMAZON_CLIENT_SECRET
+        self.refresh_token = AMAZON_REFRESH_TOKEN
+        self.marketplace_id = AMAZON_MARKETPLACE_ID
+        self.region = AMAZON_REGION
+        self.base_url = f"https://sellingpartnerapi-fe.amazon.com"  # SP-API
+        self.access_token = None
+        logger.info("Amazon SP-API connection initialized successfully")
     
     def sync_recent_orders(self, days: int = 1, start_date_override: datetime = None, end_date_override: datetime = None) -> bool:
         """
