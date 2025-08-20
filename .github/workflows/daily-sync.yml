@@ -4,8 +4,6 @@ on:
   schedule:
     # 毎日日本時間9時に実行
     - cron: '0 0 * * *'  # UTC 0:00 = JST 9:00
-    # 6時間ごとにKeep Alive
-    - cron: '0 */6 * * *'
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
