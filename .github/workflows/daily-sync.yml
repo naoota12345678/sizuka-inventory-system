@@ -40,3 +40,15 @@ jobs:
         RAKUTEN_LICENSE_KEY: ${{ secrets.RAKUTEN_LICENSE_KEY }}
       run: python daily_sync.py
     
+    - name: Sync Amazon Orders
+      if: github.event.schedule == '0 0 * * *'
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        AMAZON_CLIENT_ID: ${{ secrets.AMAZON_CLIENT_ID }}
+        AMAZON_CLIENT_SECRET: ${{ secrets.AMAZON_CLIENT_SECRET }}
+        AMAZON_REFRESH_TOKEN: ${{ secrets.AMAZON_REFRESH_TOKEN }}
+        AMAZON_MARKETPLACE_ID: ${{ secrets.AMAZON_MARKETPLACE_ID }}
+        AMAZON_REGION: ${{ secrets.AMAZON_REGION }}
+      run: python amazon_sp_api_sync.py daily
+    
