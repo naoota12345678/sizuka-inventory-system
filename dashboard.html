@@ -364,8 +364,9 @@
             <div class="action-buttons">
                 <button class="btn btn-primary" onclick="refreshDashboard()">ダッシュボード更新</button>
                 <button class="btn btn-secondary" onclick="checkSystemStatus()">システム診断</button>
-                <button class="btn btn-secondary" onclick="checkSpreadsheetSync()">スプレッドシート同期確認</button>
-                <button class="btn btn-secondary" onclick="checkInventoryMapping()">在庫マッピング確認</button>
+                <button class="btn btn-secondary" onclick="window.open('https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/sales-dashboard', '_blank')">📊 売上ダッシュボード</button>
+                <button class="btn btn-secondary" onclick="window.open('https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/inventory-dashboard', '_blank')">📦 在庫ダッシュボード</button>
+                <button class="btn btn-secondary" onclick="window.open('https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/unmapped-dashboard', '_blank')" style="background: #e74c3c;">🔍 未マッピング商品管理</button>
             </div>
             
             <div id="overviewMessage" class="message"></div>
