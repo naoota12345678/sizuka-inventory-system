@@ -2,8 +2,8 @@ name: Daily Sync and Keep Alive
 
 on:
   schedule:
-    # 毎日日本時間9時に実行
-    - cron: '0 0 * * *'  # UTC 0:00 = JST 9:00
+    # 毎日日本時間3時に実行
+    - cron: '0 18 * * *'  # UTC 18:00 = JST 3:00
   workflow_dispatch:  # 手動実行も可能
 
 jobs:
