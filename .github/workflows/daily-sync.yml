@@ -50,3 +50,10 @@ jobs:
         AMAZON_REGION: ${{ secrets.AMAZON_REGION }}
       run: python correct_amazon_sync.py daily
     
+    - name: Sync Manufacturing Inventory
+      if: github.event.schedule == '0 0 * * *' || github.event_name == 'workflow_dispatch'
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      run: python daily_manufacturing_sync.py --auto
+    
