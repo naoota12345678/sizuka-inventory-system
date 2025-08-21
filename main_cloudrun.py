@@ -3331,6 +3331,57 @@ async def sales_dashboard(request: Request):
             color: #666;
         }
         
+        .store-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .store-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+        
+        .store-info {
+            flex: 1;
+        }
+        
+        .store-name {
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .store-details {
+            font-size: 12px;
+            color: #7f8c8d;
+        }
+        
+        .store-stats {
+            text-align: right;
+        }
+        
+        .store-amount {
+            font-size: 16px;
+            font-weight: bold;
+            color: #27ae60;
+            margin-bottom: 3px;
+        }
+        
+        .store-percentage {
+            background: #3498db;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+        }
+        
         .tabs {
             display: flex;
             gap: 10px;
@@ -3399,6 +3450,14 @@ async def sales_dashboard(request: Request):
                 <h2>商品数</h2>
                 <div class="stat-value" id="uniqueProducts">-</div>
                 <div class="stat-label">種類</div>
+            </div>
+        </div>
+
+        <!-- 店舗別売上内訳 -->
+        <div class="card" style="margin-bottom: 20px;">
+            <h2>🏪 販売店舗別内訳</h2>
+            <div id="storeBreakdown" class="store-breakdown">
+                <div class="loading">データを読み込んでいます...</div>
             </div>
         </div>
 
@@ -3473,19 +3532,29 @@ async def sales_dashboard(request: Request):
             const end = new Date(endDate);
             const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
             
-            // 売上データ取得
-            const apiUrl = `${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`;
-            console.log('Fetching:', apiUrl);
+            // 売上データと店舗別データを並行取得
+            const salesApiUrl = `${window.location.origin}/api/sales_dashboard?start_date=${startDate}&end_date=${endDate}`;
+            const storeApiUrl = `${window.location.origin}/api/sales/store_summary?start_date=${startDate}&end_date=${endDate}`;
+            
+            console.log('Fetching sales data:', salesApiUrl);
+            console.log('Fetching store data:', storeApiUrl);
             
             try {
-                const response = await fetch(apiUrl);
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('API response data:', data);
+                // 並行でAPIを呼び出し
+                const [salesResponse, storeResponse] = await Promise.all([
+                    fetch(salesApiUrl),
+                    fetch(storeApiUrl)
+                ]);
                 
-                if (data.status === 'success') {
+                const salesData = await salesResponse.json();
+                const storeData = await storeResponse.json();
+                
+                console.log('Sales API response:', salesData);
+                console.log('Store API response:', storeData);
+                
+                if (salesData.status === 'success') {
                     // サマリー更新 - 実際のAPIレスポンス構造に合わせる
-                    const summary = data.summary || {};
+                    const summary = salesData.summary || {};
                     updateSummary({
                         total_sales: summary.total_amount || 0,
                         total_quantity: summary.total_quantity || 0,
@@ -3494,8 +3563,8 @@ async def sales_dashboard(request: Request):
                     });
                     
                     // 商品テーブル更新 - data.itemsを使用
-                    if (data.items && Array.isArray(data.items)) {
-                        updateProductsTable(data.items);
+                    if (salesData.items && Array.isArray(salesData.items)) {
+                        updateProductsTable(salesData.items);
                     } else {
                         updateProductsTable([]);
                     }
@@ -3503,6 +3572,14 @@ async def sales_dashboard(request: Request):
                     // タイムラインは空（このAPIには期間別データなし）
                     updateTimelineTable([]);
                 }
+                
+                // 店舗別売上表示を更新
+                if (storeData.status === 'success') {
+                    updateStoreBreakdown(storeData.stores || []);
+                } else {
+                    updateStoreBreakdown([]);
+                }
+                
             } catch (error) {
                 console.error('Error loading data:', error);
                 // エラー時は空データで更新
@@ -3512,6 +3589,7 @@ async def sales_dashboard(request: Request):
                     total_orders: 0,
                     unique_products: 0
                 });
+                updateStoreBreakdown([]);
             }
         }
 
@@ -3607,6 +3685,41 @@ async def sales_dashboard(request: Request):
                     <td class="number">${quantity.toLocaleString()}</td>
                     <td class="number">${ordersCount.toLocaleString()}</td>
                 </tr>
+                `;
+            }).join('');
+        }
+
+        function updateStoreBreakdown(stores) {
+            const container = document.getElementById('storeBreakdown');
+            
+            if (!stores || stores.length === 0) {
+                container.innerHTML = '<div class="loading">店舗別データがありません</div>';
+                return;
+            }
+            
+            const safeNumber = (value) => Number(value) || 0;
+            
+            container.innerHTML = stores.map(store => {
+                const totalSales = safeNumber(store.total_sales);
+                const percentage = safeNumber(store.percentage);
+                const orderCount = safeNumber(store.order_count);
+                const totalItems = safeNumber(store.total_items);
+                const avgOrderValue = safeNumber(store.average_order_value);
+                
+                return `
+                <div class="store-item">
+                    <div class="store-info">
+                        <div class="store-name">${store.store_name || '不明な店舗'}</div>
+                        <div class="store-details">
+                            ${orderCount.toLocaleString()}件の注文 • ${totalItems.toLocaleString()}個販売 • 
+                            平均注文額: ¥${Math.round(avgOrderValue).toLocaleString()}
+                        </div>
+                    </div>
+                    <div class="store-stats">
+                        <div class="store-amount">¥${totalSales.toLocaleString()}</div>
+                        <div class="store-percentage">${percentage.toFixed(1)}%</div>
+                    </div>
+                </div>
                 `;
             }).join('');
         }
