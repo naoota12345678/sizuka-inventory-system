@@ -4803,6 +4803,39 @@ async def platform_sales_comparison():
 
 # ===== 未マッピング商品管理API =====
 
+@app.get("/api/unmapped_debug")
+async def unmapped_debug():
+    """未マッピング商品デバッグ情報"""
+    try:
+        # マッピングテーブル数確認
+        pm_count = supabase.table('product_master').select('id', count='exact').execute()
+        ccm_count = supabase.table('choice_code_mapping').select('id', count='exact').execute()
+        
+        # C01の状況確認
+        c01_check = supabase.table('choice_code_mapping').select('*').eq('choice_info->>choice_code', 'C01').execute()
+        
+        # 最新order_items確認
+        recent_orders = supabase.table('order_items').select('choice_code, product_name').eq('choice_code', 'C01').limit(3).execute()
+        
+        return {
+            'status': 'debug_success',
+            'timestamp': datetime.now().isoformat(),
+            'mapping_tables': {
+                'product_master_count': pm_count.count,
+                'choice_code_mapping_count': ccm_count.count
+            },
+            'c01_mapping': {
+                'found': len(c01_check.data) > 0,
+                'data': c01_check.data
+            },
+            'c01_orders': {
+                'count': len(recent_orders.data),
+                'samples': recent_orders.data
+            }
+        }
+    except Exception as e:
+        return {'status': 'debug_error', 'message': str(e)}
+
 @app.get("/api/unmapped_products")
 async def get_unmapped_products():
     """未マッピング商品の取得"""
