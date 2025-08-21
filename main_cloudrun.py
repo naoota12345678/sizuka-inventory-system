@@ -4310,8 +4310,112 @@ async def store_sales_summary(
 async def store_sales_dashboard_html():
     """販売店舗別売上ダッシュボードHTML"""
     try:
-        # APIから店舗別売上データを取得
-        data = await store_sales_summary()
+        # 直接データを取得（APIではなく内部処理）
+        # デフォルト期間（過去30日）
+        end_date = datetime.now(pytz.timezone('Asia/Tokyo')).date().isoformat()
+        start_date = (datetime.now(pytz.timezone('Asia/Tokyo')).date() - timedelta(days=30)).isoformat()
+        
+        # 1. プラットフォーム情報を取得
+        platforms_response = supabase.table('platform').select('*').execute()
+        platform_map = {}
+        if platforms_response.data:
+            for platform in platforms_response.data:
+                platform_map[platform['id']] = {
+                    'name': platform.get('name', f'Platform_{platform["id"]}'),
+                    'description': platform.get('description', '')
+                }
+        
+        # 2. 期間内のordersを取得
+        orders_query = supabase.table('orders').select('id, platform_id, order_date, order_number').gte('order_date', start_date).lte('order_date', end_date)
+        orders_response = orders_query.execute()
+        
+        if not orders_response.data:
+            return HTMLResponse(content="<h1>データなし</h1><p>該当期間にデータがありません</p>")
+        
+        # 3. order_itemsを取得して売上計算
+        order_ids = [order['id'] for order in orders_response.data]
+        
+        # バッチ処理でorder_items取得
+        batch_size = 100
+        all_items = []
+        
+        for i in range(0, len(order_ids), batch_size):
+            batch_ids = order_ids[i:i + batch_size]
+            items_query = supabase.table('order_items').select('order_id, quantity, price').in_('order_id', batch_ids)
+            items_response = items_query.execute()
+            if items_response.data:
+                all_items.extend(items_response.data)
+        
+        # 4. プラットフォーム別集計
+        store_sales = {}
+        
+        for item in all_items:
+            order_id = item.get('order_id')
+            quantity = int(item.get('quantity', 0))
+            price = float(item.get('price', 0))
+            amount = quantity * price
+            
+            # 該当するorderのplatform_idを取得
+            platform_id = None
+            for order in orders_response.data:
+                if order['id'] == order_id:
+                    platform_id = order.get('platform_id')
+                    break
+            
+            if platform_id is not None:
+                if platform_id not in store_sales:
+                    store_sales[platform_id] = {
+                        'platform_id': platform_id,
+                        'store_name': platform_map.get(platform_id, {}).get('name', f'店舗_{platform_id}'),
+                        'total_sales': 0,
+                        'total_items': 0,
+                        'order_count': 0,
+                        'orders': set()
+                    }
+                
+                store_sales[platform_id]['total_sales'] += amount
+                store_sales[platform_id]['total_items'] += quantity
+                store_sales[platform_id]['orders'].add(order_id)
+        
+        # 5. 注文数を計算
+        for platform_id in store_sales:
+            store_sales[platform_id]['order_count'] = len(store_sales[platform_id]['orders'])
+            # setは JSON serializable でないので削除
+            del store_sales[platform_id]['orders']
+        
+        # 6. 結果をソート（売上高順）
+        sorted_stores = sorted(store_sales.values(), key=lambda x: x['total_sales'], reverse=True)
+        
+        # 7. 全体サマリー計算
+        total_sales = sum(store['total_sales'] for store in sorted_stores)
+        total_orders = len(orders_response.data)
+        total_stores = len(sorted_stores)
+        
+        # 8. パーセンテージ計算
+        for store in sorted_stores:
+            if total_sales > 0:
+                store['percentage'] = (store['total_sales'] / total_sales) * 100
+            else:
+                store['percentage'] = 0
+            
+            # 平均注文額計算
+            if store['order_count'] > 0:
+                store['average_order_value'] = store['total_sales'] / store['order_count']
+            else:
+                store['average_order_value'] = 0
+        
+        # データ構造を組み立て
+        data = {
+            'status': 'success',
+            'period': {'start_date': start_date, 'end_date': end_date},
+            'summary': {
+                'total_sales': total_sales,
+                'total_orders': total_orders,
+                'total_stores': total_stores,
+                'total_items': sum(store['total_items'] for store in sorted_stores)
+            },
+            'stores': sorted_stores
+        }
         
         if data['status'] != 'success':
             return HTMLResponse(content=f"<h1>エラー</h1><p>{data.get('message', 'Unknown error')}</p>")
