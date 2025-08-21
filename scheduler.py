@@ -48,15 +48,15 @@ def run_daily_job():
 
 def setup_scheduler():
     """スケジューラーの設定"""
-    # 毎日午前2時に実行（サーバーの負荷が少ない時間帯）
-    schedule.every().day.at("02:00").do(run_daily_job)
+    # 毎日午前3時に前日売上同期（売上確定後の時間帯）
+    schedule.every().day.at("03:00").do(run_daily_job)
     
     # テスト用：毎分実行（本番では無効化）
     # schedule.every(1).minutes.do(run_daily_job)
     
     logger.info("Scheduler configured:")
-    logger.info("- Daily execution at 02:00 JST")
-    logger.info("- Processing: Google Sheets sync + Rakuten order processing")
+    logger.info("- Daily execution at 03:00 JST (前日売上同期)")
+    logger.info("- Processing: Google Sheets sync + 前日楽天注文処理")
 
 def run_scheduler():
     """スケジューラーのメインループ"""

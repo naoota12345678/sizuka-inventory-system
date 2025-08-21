@@ -154,19 +154,21 @@ def create_unprocessed_sales_record(item, unmapped_codes, supabase):
         return False
 
 def process_daily_orders(target_date=None):
-    """指定日の楽天注文データを処理"""
+    """指定日の楽天注文データを処理（デフォルトは前日）"""
     if target_date is None:
-        target_date = datetime.now().date()
+        # 前日の売上データを処理（現実的なアプローチ）
+        target_date = (datetime.now() - timedelta(days=1)).date()
     
     logger.info(f"=== Processing Rakuten Orders for {target_date} ===")
     
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     
-    # 指定日の注文アイテムを取得
+    # 指定日の楽天注文アイテムのみを取得（platform_id=1）
     start_datetime = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
     end_datetime = start_datetime + timedelta(days=1)
     
-    orders = supabase.table("order_items").select("*").gte("created_at", start_datetime.isoformat()).lt("created_at", end_datetime.isoformat()).execute()
+    # 楽天プラットフォーム（platform_id=1）のorder_itemsのみ取得
+    orders = supabase.table("order_items").select("*, orders!inner(platform_id)").eq("orders.platform_id", 1).gte("created_at", start_datetime.isoformat()).lt("created_at", end_datetime.isoformat()).execute()
     
     if not orders.data:
         logger.info(f"No order items found for {target_date}")
