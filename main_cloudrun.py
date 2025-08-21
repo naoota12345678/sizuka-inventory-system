@@ -571,27 +571,28 @@ async def sales_dashboard(
                     }
         
         # 2段階クエリ：期間フィルタリングの確実な実行
-        # 1. 期間内のordersを取得
-        orders_query = supabase.table('orders').select('id, order_date').gte('order_date', start_date).lte('order_date', end_date)
+        # 1. 期間内のordersを取得（total_amountも含める）
+        orders_query = supabase.table('orders').select('id, order_date, total_amount').gte('order_date', start_date).lte('order_date', end_date)
         orders_response = orders_query.execute()
         
         if not orders_response.data:
             # 該当期間にデータなし
             all_sales = []
+            total_amount = 0
+            total_quantity = 0
+            unique_orders = 0
         else:
-            # 2. 該当するorder_idsでorder_itemsを取得
+            # 2. 該当するorder_idsでorder_itemsを取得（商品詳細のみ）
             order_ids = [order['id'] for order in orders_response.data]
             items_query = supabase.table('order_items').select('*').in_('order_id', order_ids)
             items_response = items_query.execute()
             
             all_sales = items_response.data if items_response.data else []
-        
-        # 統計計算（安全な処理）
-        total_amount = sum(float(item.get('price', 0)) * int(item.get('quantity', 0)) for item in all_sales)
-        total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
-        
-        # 注文数計算（2段階クエリ対応）
-        unique_orders = len(orders_response.data) if orders_response.data else 0
+            
+            # 統計計算（ordersテーブルのtotal_amountを使用）
+            total_amount = sum(float(order.get('total_amount', 0)) for order in orders_response.data)
+            total_quantity = sum(int(item.get('quantity', 0)) for item in all_sales)
+            unique_orders = len(orders_response.data)
         
         # 商品別集約
         product_sales = {}
