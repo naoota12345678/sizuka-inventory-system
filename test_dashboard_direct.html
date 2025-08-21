@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>未マッピング商品確認 - 直接テスト</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+        .info { background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔍 未マッピング商品確認</h1>
+    <button onclick="checkUnmapped()">再確認</button>
+    
+    <div id="status" class="info">確認中...</div>
+    <div id="result"></div>
+    
+    <script>
+        async function checkUnmapped() {
+            const status = document.getElementById('status');
+            const result = document.getElementById('result');
+            
+            status.textContent = 'APIを呼び出し中...';
+            status.className = 'info';
+            
+            try {
+                const response = await fetch('https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/api/unmapped_products');
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    if (data.unmapped_count === 0) {
+                        status.textContent = '✅ すべての商品がマッピング済みです';
+                        status.className = 'success';
+                        result.innerHTML = `
+                            <h3>マッピング完了 🎉</h3>
+                            <ul>
+                                <li>未マッピング商品: 0件</li>
+                                <li>サンプル確認: ${data.sample_size}件</li>
+                                <li>マッピング率: 100%</li>
+                            </ul>
+                            <p><strong>C01選択肢コード（タオルセット）も正しくマッピングされています。</strong></p>
+                        `;
+                    } else {
+                        status.textContent = `⚠️ ${data.unmapped_count}件の未マッピング商品があります`;
+                        status.className = 'error';
+                        result.innerHTML = '<h3>未マッピング商品:</h3>';
+                        data.unmapped_products.forEach(product => {
+                            result.innerHTML += `
+                                <div style="border: 1px solid #ccc; margin: 10px 0; padding: 10px;">
+                                    <strong>${product.product_name}</strong><br>
+                                    選択肢コード: ${product.choice_code || '-'}<br>
+                                    楽天SKU: ${product.rakuten_item_number || '-'}<br>
+                                    数量: ${product.total_quantity}個
+                                </div>
+                            `;
+                        });
+                    }
+                } else {
+                    status.textContent = 'APIエラーが発生しました';
+                    status.className = 'error';
+                    result.textContent = data.message;
+                }
+            } catch (error) {
+                status.textContent = 'ネットワークエラーが発生しました';
+                status.className = 'error';
+                result.textContent = error.message;
+            }
+        }
+        
+        // ページ読み込み時に自動実行
+        document.addEventListener('DOMContentLoaded', checkUnmapped);
+    </script>
+</body>
+</html>

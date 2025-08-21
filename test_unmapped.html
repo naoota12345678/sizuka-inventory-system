@@ -33,11 +33,12 @@
                     if (data.unmapped_products && data.unmapped_products.length > 0) {
                         const product = data.unmapped_products[0];
                         console.log('Product name raw:', product.product_name);
-                        console.log('Product name decoded:', decodeURIComponent(escape(product.product_name)));
                         
-                        // 文字化けを修正して表示
-                        const fixedName = 'タオルセット'; // 既知の正しい商品名
-                        output.textContent += '\n\n修正後の商品名: ' + fixedName;
+                        // 商品名はすでに正しく取得されている
+                        output.textContent += '\n\n商品情報:';
+                        output.textContent += '\n- 商品名: ' + product.product_name;
+                        output.textContent += '\n- 選択肢コード: ' + product.choice_code;
+                        output.textContent += '\n- 数量: ' + product.total_quantity;
                     }
                 } catch (e) {
                     console.error('JSON parse error:', e);
