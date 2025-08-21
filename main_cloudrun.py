@@ -5185,18 +5185,27 @@ async def unmapped_dashboard():
             let unmappedData = null;
             
             async function loadUnmappedProducts() {
+                console.log('Loading unmapped products...');
+                const container = document.getElementById('unmapped-content');
+                container.innerHTML = '<div class="loading">🔍 未マッピング商品を検索中...</div>';
+                
                 try {
                     const response = await fetch('/api/unmapped_products');
+                    console.log('API response received');
                     const data = await response.json();
+                    console.log('Data:', data);
                     
                     if (data.status === 'success') {
                         unmappedData = data;
                         displayUnmappedProducts(data);
                         updateStatus(data);
                     } else {
+                        container.innerHTML = '<div class="alert alert-danger">データ取得エラー: ' + data.message + '</div>';
                         showAlert('error', 'データ取得エラー: ' + data.message);
                     }
                 } catch (error) {
+                    console.error('Error:', error);
+                    container.innerHTML = '<div class="alert alert-danger">ネットワークエラー: ' + error.message + '</div>';
                     showAlert('error', 'ネットワークエラー: ' + error.message);
                 }
             }
@@ -5329,7 +5338,11 @@ async def unmapped_dashboard():
             }
             
             // ページ読み込み時に実行
-            window.addEventListener('load', loadUnmappedProducts);
+            // DOMContentLoaded イベントで実行
+            document.addEventListener('DOMContentLoaded', () => {
+                console.log('DOMContentLoaded - Starting load');
+                loadUnmappedProducts();
+            });
             
             // 30秒ごとに自動更新
             setInterval(loadUnmappedProducts, 30000);
