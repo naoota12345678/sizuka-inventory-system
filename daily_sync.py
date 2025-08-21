@@ -21,9 +21,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 環境変数から設定を読み込み
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+# 環境変数から設定を読み込み（フォールバックあり）
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://equrcpeifogdrxoldkpe.supabase.co')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ')
 RAKUTEN_SERVICE_SECRET = os.getenv('RAKUTEN_SERVICE_SECRET')
 RAKUTEN_LICENSE_KEY = os.getenv('RAKUTEN_LICENSE_KEY')
 
