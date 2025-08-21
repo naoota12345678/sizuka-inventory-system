@@ -4308,8 +4308,8 @@ async def store_sales_summary(
                     'description': platform.get('description', '')
                 }
         
-        # 2. 期間内のordersを取得
-        orders_query = supabase.table('orders').select('id, platform_id, order_date, order_number').gte('order_date', start_date).lte('order_date', end_date)
+        # 2. 期間内のordersを取得（total_amountも含める）
+        orders_query = supabase.table('orders').select('id, platform_id, order_date, order_number, total_amount').gte('order_date', start_date).lte('order_date', end_date)
         orders_response = orders_query.execute()
         
         if not orders_response.data:
@@ -4321,35 +4321,32 @@ async def store_sales_summary(
                 "summary": {"total_sales": 0, "total_orders": 0, "total_stores": 0}
             }
         
-        # 3. order_itemsを取得して売上計算
+        # 3. order_itemsから商品数のみ取得（重複問題を回避するため売上はordersテーブルから使用）
         order_ids = [order['id'] for order in orders_response.data]
+        order_item_counts = {}
         
-        # バッチ処理でorder_items取得
-        batch_size = 100
-        all_items = []
+        if order_ids:
+            batch_size = 100
+            for i in range(0, len(order_ids), batch_size):
+                batch_ids = order_ids[i:i + batch_size]
+                items_query = supabase.table('order_items').select('order_id, quantity').in_('order_id', batch_ids)
+                items_response = items_query.execute()
+                if items_response.data:
+                    for item in items_response.data:
+                        order_id = item.get('order_id')
+                        quantity = int(item.get('quantity', 0))
+                        if order_id not in order_item_counts:
+                            order_item_counts[order_id] = 0
+                        order_item_counts[order_id] += quantity
         
-        for i in range(0, len(order_ids), batch_size):
-            batch_ids = order_ids[i:i + batch_size]
-            items_query = supabase.table('order_items').select('order_id, quantity, price').in_('order_id', batch_ids)
-            items_response = items_query.execute()
-            if items_response.data:
-                all_items.extend(items_response.data)
-        
-        # 4. プラットフォーム別集計
+        # 4. プラットフォーム別集計（ordersテーブルのtotal_amountを使用）
         store_sales = {}
         
-        for item in all_items:
-            order_id = item.get('order_id')
-            quantity = int(item.get('quantity', 0))
-            price = float(item.get('price', 0))
-            amount = quantity * price
-            
-            # 該当するorderのplatform_idを取得
-            platform_id = None
-            for order in orders_response.data:
-                if order['id'] == order_id:
-                    platform_id = order.get('platform_id')
-                    break
+        for order in orders_response.data:
+            platform_id = order.get('platform_id')
+            order_id = order['id']
+            total_amount = float(order.get('total_amount', 0))
+            total_items = order_item_counts.get(order_id, 0)
             
             if platform_id is not None:
                 if platform_id not in store_sales:
@@ -4362,8 +4359,8 @@ async def store_sales_summary(
                         'orders': set()
                     }
                 
-                store_sales[platform_id]['total_sales'] += amount
-                store_sales[platform_id]['total_items'] += quantity
+                store_sales[platform_id]['total_sales'] += total_amount
+                store_sales[platform_id]['total_items'] += total_items
                 store_sales[platform_id]['orders'].add(order_id)
         
         # 5. 注文数を計算
