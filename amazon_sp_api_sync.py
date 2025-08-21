@@ -26,9 +26,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 環境変数から設定を読み込み
-SUPABASE_URL = os.getenv('SUPABASE_URL')
-SUPABASE_KEY = os.getenv('SUPABASE_KEY')
+# 環境変数から設定を読み込み（フォールバックあり）
+SUPABASE_URL = os.getenv('SUPABASE_URL', 'https://equrcpeifogdrxoldkpe.supabase.co')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVxdXJjcGVpZm9nZHJ4b2xka3BlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzkxNjE2NTMsImV4cCI6MjA1NDczNzY1M30.ywOqf2BSf2PcIni5_tjJdj4p8E51jxBSrfD8BE8PAhQ')
 
 # Amazon SP-API認証情報
 AMAZON_CLIENT_ID = os.getenv('AMAZON_CLIENT_ID')
@@ -36,6 +36,12 @@ AMAZON_CLIENT_SECRET = os.getenv('AMAZON_CLIENT_SECRET')
 AMAZON_REFRESH_TOKEN = os.getenv('AMAZON_REFRESH_TOKEN')
 AMAZON_MARKETPLACE_ID = os.getenv('AMAZON_MARKETPLACE_ID', 'A1VC38T7YXB528')  # 日本
 AMAZON_REGION = os.getenv('AMAZON_REGION', 'us-west-2')
+
+# Amazon MWS認証情報（レガシー）
+AMAZON_SELLER_ID = os.getenv('AMAZON_SELLER_ID')
+AMAZON_MWS_AUTH_TOKEN = os.getenv('AMAZON_MWS_AUTH_TOKEN')
+AMAZON_ACCESS_KEY_ID = os.getenv('AMAZON_ACCESS_KEY_ID')
+AMAZON_SECRET_ACCESS_KEY = os.getenv('AMAZON_SECRET_ACCESS_KEY')
 
 # 必須環境変数チェック
 if not all([SUPABASE_URL, SUPABASE_KEY]):
@@ -70,6 +76,13 @@ class AmazonSync:
         self.region = AMAZON_REGION
         self.base_url = f"https://sellingpartnerapi-fe.amazon.com"  # SP-API
         self.access_token = None
+        
+        # MWS認証情報（レガシー）
+        self.seller_id = AMAZON_SELLER_ID
+        self.mws_auth_token = AMAZON_MWS_AUTH_TOKEN
+        self.access_key_id = AMAZON_ACCESS_KEY_ID
+        self.secret_access_key = AMAZON_SECRET_ACCESS_KEY
+        
         logger.info("Amazon SP-API connection initialized successfully")
     
     def sync_recent_orders(self, days: int = 1, start_date_override: datetime = None, end_date_override: datetime = None) -> bool:
