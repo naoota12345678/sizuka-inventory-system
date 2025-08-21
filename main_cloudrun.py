@@ -4850,11 +4850,20 @@ async def get_unmapped_products():
                 key = choice_code if choice_code else f"sku_{rakuten_item_number}"
                 
                 if key not in unmapped_products:
+                    # 商品名のエンコーディング問題を修正
+                    product_name = item.get('product_name', '')
+                    if not product_name or '�' in product_name:
+                        # 文字化けしている場合、デフォルト名を使用
+                        if choice_code == 'C01':
+                            product_name = 'タオルセット'
+                        else:
+                            product_name = f'商品_{rakuten_item_number or choice_code}'
+                    
                     unmapped_products[key] = {
                         'choice_code': choice_code,
                         'rakuten_item_number': rakuten_item_number,
                         'product_code': item.get('product_code', ''),
-                        'product_name': item.get('product_name', ''),
+                        'product_name': product_name,
                         'total_quantity': 0,
                         'order_count': 0,
                         'latest_order_date': item.get('orders', {}).get('order_date', '')

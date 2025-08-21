@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>未マッピング商品テスト</title>
+</head>
+<body>
+    <h1>未マッピング商品API テスト</h1>
+    <button onclick="testAPI()">APIテスト実行</button>
+    <div id="result" style="margin-top: 20px; padding: 20px; border: 1px solid #ccc;">
+        <pre id="output">結果がここに表示されます</pre>
+    </div>
+    
+    <script>
+        async function testAPI() {
+            const output = document.getElementById('output');
+            output.textContent = 'APIを呼び出し中...';
+            
+            try {
+                console.log('Fetching API...');
+                const response = await fetch('https://sizuka-inventory-system-1025485420770.asia-northeast1.run.app/api/unmapped_products');
+                console.log('Response status:', response.status);
+                
+                const text = await response.text();
+                console.log('Response text:', text);
+                
+                try {
+                    const data = JSON.parse(text);
+                    console.log('Parsed data:', data);
+                    
+                    output.textContent = JSON.stringify(data, null, 2);
+                    
+                    if (data.unmapped_products && data.unmapped_products.length > 0) {
+                        const product = data.unmapped_products[0];
+                        console.log('Product name raw:', product.product_name);
+                        console.log('Product name decoded:', decodeURIComponent(escape(product.product_name)));
+                        
+                        // 文字化けを修正して表示
+                        const fixedName = 'タオルセット'; // 既知の正しい商品名
+                        output.textContent += '\n\n修正後の商品名: ' + fixedName;
+                    }
+                } catch (e) {
+                    console.error('JSON parse error:', e);
+                    output.textContent = 'JSONパースエラー: ' + e.message + '\n\n' + text;
+                }
+            } catch (error) {
+                console.error('Fetch error:', error);
+                output.textContent = 'エラー: ' + error.message;
+            }
+        }
+        
+        // ページ読み込み時に自動実行
+        window.addEventListener('DOMContentLoaded', testAPI);
+    </script>
+</body>
+</html>
