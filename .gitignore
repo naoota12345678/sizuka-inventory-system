@@ -1,48 +1,9 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-.venv
-
-# 環境変数
+node_modules
+.next
+out
 .env
 .env.local
-.env.production
-
-# Google認証情報
-google-credentials.json
-google-creds-oneline.json
-credentials.json
-*.json
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# ログ
-*.log
-sync_log.txt
-
-# テストデータ
-test_data/
-tests/__pycache__/
-
-# デプロイ関連
-.gcloudignore
-app.yaml.bak
-
-# OS
-.DS_Store
-Thumbs.db
-
-# その他
-*.bak
-*.tmp
-*.temp
+.env*.local
+.vercel
+*.tsbuildinfo
+next-env.d.ts
