@@ -30,15 +30,14 @@ export async function POST(req: NextRequest) {
   const body = await readBody(req);
   const store = getStore();
 
-  // 合言葉チェック（デモモードで未設定のときだけ省略可）
+  // 合言葉チェック：SHORTCUT_TOKEN を設定したときだけ求める。
+  // 未設定なら URL を知っている人は誰でも書き込める（代表判断 2026-09-29：ショートカットを簡単にするため合言葉なしで運用）
   const expected = process.env.SHORTCUT_TOKEN?.trim();
-  const token = String(body.token ?? req.headers.get("x-shortcut-token") ?? "").trim();
   if (expected) {
+    const token = String(body.token ?? req.headers.get("x-shortcut-token") ?? "").trim();
     if (!safeEqual(token, expected)) {
       return NextResponse.json({ ok: false, speech: "合言葉が違うので記録できませんでした。" }, { status: 401 });
     }
-  } else if (store.mode === "sheets") {
-    return NextResponse.json({ ok: false, speech: "サーバーの設定が終わっていません。管理者に連絡してください。" }, { status: 500 });
   }
 
   const name = String(body.name ?? "").trim().slice(0, 40);
