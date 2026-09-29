@@ -16,22 +16,7 @@ function shift(ymd: string, n: number) {
 function nowHm() {
   return new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", hour: "2-digit", minute: "2-digit" }).format(new Date());
 }
-const store = {
-  get(k: string) {
-    try {
-      return localStorage.getItem(k) || "";
-    } catch {
-      return "";
-    }
-  },
-  set(k: string, v: string) {
-    try {
-      localStorage.setItem(k, v);
-    } catch {}
-  },
-};
-
-export default function Board({ manualEnabled }: { manualEnabled: boolean }) {
+export default function Board() {
   const [date, setDate] = useState<string | null>(null); // null = 今日
   const [data, setData] = useState<BoardData | null>(null);
   const [error, setError] = useState("");
@@ -148,8 +133,6 @@ export default function Board({ manualEnabled }: { manualEnabled: boolean }) {
 
       {error && <div className="error">{error}（30秒後にもう一度読み込みます）</div>}
 
-      {manualEnabled && isToday && <Composer onSaved={load} />}
-
       <div className="layout">
         <section className="timeline" aria-label="作業記録">
           {data && data.people.length > 1 && (
@@ -166,7 +149,7 @@ export default function Board({ manualEnabled }: { manualEnabled: boolean }) {
           )}
           <EntryList items={entries} onCow={pickCow} onUndo={undo} />
           {data && entries.length === 0 && (
-            <p className="empty">{isToday ? "まだ記録はありません。上の欄で話すと、ここに積まれていきます。" : "この日の記録はありません"}</p>
+            <p className="empty">{isToday ? "まだ記録はありません。「Hey Siri、日報」で話すと、ここに積まれていきます。" : "この日の記録はありません"}</p>
           )}
         </section>
 
@@ -256,136 +239,5 @@ function EntryList({
         </li>
       ))}
     </ul>
-  );
-}
-
-type Recognition = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start(): void;
-  stop(): void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-};
-function speechRecognition(): (new () => Recognition) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
-  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
-
-/** 話して記録する欄。🎤が使えない端末はキーボードのマイク（音声入力）で入れてもらう */
-function Composer({ onSaved }: { onSaved: () => void }) {
-  const [name, setName] = useState("");
-  const [editingName, setEditingName] = useState(false);
-  const [text, setText] = useState("");
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [canListen, setCanListen] = useState(false);
-  const rec = useRef<Recognition | null>(null);
-
-  useEffect(() => {
-    const saved = store.get("farm-board-name");
-    setName(saved);
-    setEditingName(!saved);
-    setCanListen(!!speechRecognition());
-  }, []);
-
-  function listen() {
-    const SR = speechRecognition();
-    if (!SR) return;
-    if (listening) {
-      rec.current?.stop();
-      return;
-    }
-    const r = new SR();
-    r.lang = "ja-JP";
-    r.interimResults = true;
-    r.continuous = false;
-    const before = text ? `${text} ` : "";
-    r.onresult = (e) => {
-      let heard = "";
-      for (let i = 0; i < e.results.length; i++) heard += e.results[i][0].transcript;
-      setText(before + heard);
-    };
-    r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
-    rec.current = r;
-    setMsg(null);
-    setListening(true);
-    r.start();
-  }
-
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    rec.current?.stop();
-    setBusy(true);
-    store.set("farm-board-name", name.trim());
-    const r = await fetch("/api/report", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), text, fromBoard: true }),
-    }).catch(() => null);
-    const j = r ? await r.json().catch(() => ({})) : {};
-    setBusy(false);
-    if (r?.ok) {
-      setMsg({ ok: true, text: `記録しました：${j.text || text}` });
-      setText("");
-      setEditingName(false);
-      onSaved();
-    } else {
-      setMsg({ ok: false, text: j.speech || "記録できませんでした。電波を確かめて、もう一度押してください。" });
-    }
-  }
-
-  return (
-    <form className="composer" onSubmit={send}>
-      <div className="composer-who">
-        {editingName ? (
-          <label>
-            あなたの名前
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="例：田中" required autoComplete="name" />
-          </label>
-        ) : (
-          <span>
-            <strong>{name}</strong> さんとして記録
-            <button type="button" className="linkbtn" onClick={() => setEditingName(true)}>
-              名前を変える
-            </button>
-          </span>
-        )}
-      </div>
-      <div className="composer-row">
-        {canListen && (
-          <button
-            type="button"
-            className={`mic ${listening ? "on" : ""}`}
-            onClick={listen}
-            aria-label={listening ? "聞き取りを止める" : "話して入力"}
-          >
-            {listening ? "■" : "🎤"}
-          </button>
-        )}
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          rows={2}
-          placeholder={
-            listening
-              ? "聞いています…"
-              : canListen
-                ? "🎤を押して話す（例：朝のエサ終わった。23番ちょっと食いが悪い）"
-                : "ここをタップして、キーボードのマイクで話してください"
-          }
-          aria-label="やったこと・気づいたこと"
-        />
-        <button className="btn primary send" disabled={busy || !name.trim() || !text.trim()}>
-          {busy ? "記録中…" : "記録"}
-        </button>
-      </div>
-      {msg && <p className={`composer-msg ${msg.ok ? "" : "ng"}`}>{msg.text}</p>}
-    </form>
   );
 }

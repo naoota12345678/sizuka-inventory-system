@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/lib/store";
 import { classify } from "@/lib/classify";
 import { jstDate, jstDateTime } from "@/lib/time";
-import { boardAllowed, passcodeEnabled, safeEqual } from "@/lib/auth";
+import { safeEqual } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -22,15 +22,10 @@ export async function POST(req: NextRequest) {
   const body = await readBody(req);
   const store = getStore();
 
-  // ボード画面からの手入力：パスコードで守られているときだけ合言葉なしで受け付ける
-  const fromBoard = body.fromBoard === true && passcodeEnabled() && (await boardAllowed());
-
   // 合言葉チェック（デモモードで未設定のときだけ省略可）
   const expected = process.env.SHORTCUT_TOKEN?.trim();
   const token = String(body.token ?? req.headers.get("x-shortcut-token") ?? "").trim();
-  if (fromBoard) {
-    // OK
-  } else if (expected) {
+  if (expected) {
     if (!safeEqual(token, expected)) {
       return NextResponse.json({ ok: false, speech: "合言葉が違うので記録できませんでした。" }, { status: 401 });
     }
