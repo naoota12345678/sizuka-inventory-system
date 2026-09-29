@@ -27,11 +27,6 @@ const truthy = (v: unknown) => {
   const s = String(v ?? "").trim().toLowerCase();
   return s === "true" || s === "1" || s === "○" || s === "yes";
 };
-const splitList = (v: unknown) =>
-  String(v ?? "")
-    .split(/[,、，]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
 
 // ---------- Google スプレッドシート版 ----------
 class SheetsStore implements Store {
@@ -90,7 +85,7 @@ class SheetsStore implements Store {
       valueInputOption: "RAW",
       insertDataOption: "INSERT_ROWS",
       requestBody: {
-        values: rows.map((r) => [r.receivedAt, r.date, r.name, r.kind, "", r.cows.join(","), r.content, r.raw, false]),
+        values: rows.map((r) => [r.receivedAt, r.date, r.name, r.kind, "", "", r.content, r.raw, false]),
       },
     });
     clearRecordCache();
@@ -121,7 +116,6 @@ function toRecord(r: unknown[], rowId: number): RecordRow {
     date: String(r[1] ?? "").trim() || receivedAt.slice(0, 10),
     name: String(r[2] ?? ""),
     kind: String(r[3] ?? ""),
-    cows: splitList(r[5]),
     content: String(r[6] ?? ""),
     raw: String(r[7] ?? ""),
     cancelled: truthy(r[8]),
@@ -137,21 +131,20 @@ class DemoStore implements Store {
   constructor() {
     const today = jstDate();
     const yday = addDays(today, -1);
-    const seed: Array<[string, string, string, string[], string]> = [
-      [yday, "07:35", "田中", [], "朝のエサやり完了。"],
-      [yday, "16:10", "佐藤", ["23"], "23番、夕方も食いが少し悪い。様子見。"],
-      [today, "06:52", "田中", ["23"], "朝のエサやり完了。23番の食いが少し悪い。"],
-      [today, "07:48", "佐藤", [], "牛舎の掃除終わり。ボロ出しも済み。"],
-      [today, "09:15", "鈴木", ["41"], "水槽チェック完了。41番の水槽の出が悪いので、午後に部品を見る。"],
+    const seed: Array<[string, string, string, string]> = [
+      [yday, "07:35", "田中", "朝のエサやり完了。"],
+      [yday, "16:10", "佐藤", "23番、夕方も食いが少し悪い。様子見。"],
+      [today, "06:52", "田中", "朝のエサやり完了。23番の食いが少し悪い。"],
+      [today, "07:48", "佐藤", "牛舎の掃除終わり。ボロ出しも済み。"],
+      [today, "09:15", "鈴木", "水槽チェック完了。41番の水槽の出が悪いので、午後に部品を見る。"],
     ];
-    for (const [date, hm, name, cows, content] of seed) {
+    for (const [date, hm, name, content] of seed) {
       this.rows.push({
         rowId: this.nextId++,
         receivedAt: `${date} ${hm}:00`,
         date,
         name,
         kind: "記録",
-        cows,
         content,
         raw: content,
         cancelled: false,

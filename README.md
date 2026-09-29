@@ -87,7 +87,6 @@ http://localhost:3000 を開くと、仮データで動くボードが出ます�
 ---
 
 ## 話し方のコツ（スタッフ向けに伝える）
-- 牛のことは **番号＋様子**：「23番、食いが悪い」（番号がボタンになり、その牛の7日分の記録が引ける）
 - 一度に複数OK：「朝のエサと掃除終わった」
 - 記録されると Siri が「記録しました。〜」と整えた文を読み上げるので、聞き間違いがないか耳で確かめる
 
@@ -99,13 +98,13 @@ http://localhost:3000 を開くと、仮データで動くボードが出ます�
 app/
   page.tsx            ボード（見るだけ。パスコード確認）
   login/page.tsx      パスコード入力
-  api/report/route.ts 記録の受け口（Claudeで整文・牛番号抽出 → スプシ追記）
-  api/board/route.ts  ボード用データ（?date= / ?cow=）
+  api/report/route.ts 記録の受け口（Claudeで整文 → スプシ追記）
+  api/board/route.ts  ボード用データ（?date=）
   api/undo/route.ts   取消
   api/login/route.ts  パスコード
-components/Board.tsx  ボード画面（全員の記録を時系列で表示・人と牛番号で絞り込み）
+components/Board.tsx  ボード画面（全員の記録を時系列で表示・人で絞り込み）
 lib/store.ts          スプシ読み書き（SHEET_ID 未設定ならデモ用メモリ）
-lib/classify.ts       Claude で整文・牛番号抽出（失敗時は原文のまま保存）
-lib/board.ts          ボードの集計（日ごとの時系列・人ごとの件数・牛ごとの履歴）
+lib/classify.ts       Claude で整文（失敗時は原文のまま保存）
+lib/board.ts          ボードの集計（日ごとの時系列・人ごとの件数）
 lib/time.ts           日本時間の処理
 ```

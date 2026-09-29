@@ -54,14 +54,14 @@ export async function POST(req: NextRequest) {
     const c = await classify(text);
     const now = new Date();
     await store.appendRecords([
-      { receivedAt: jstDateTime(now), date: jstDate(now), name, kind: "記録", cows: c.cowNumbers, content: c.cleanedText, raw: text },
+      { receivedAt: jstDateTime(now), date: jstDate(now), name, kind: "記録", content: c.cleanedText, raw: text },
     ]);
 
     // 聞き取りが合っているか本人が確かめられるよう、整えた文を読み上げる
     const echo = c.cleanedText.length > 60 ? `${c.cleanedText.slice(0, 60)}…` : c.cleanedText;
     const speech = `記録しました。${echo}`;
 
-    return NextResponse.json({ ok: true, speech, text: c.cleanedText, cows: c.cowNumbers, via: c.via });
+    return NextResponse.json({ ok: true, speech, text: c.cleanedText, via: c.via });
   } catch (e) {
     console.error("report failed", e);
     return NextResponse.json({ ok: false, speech: "保存に失敗しました。あとでもう一度お願いします。" }, { status: 500 });

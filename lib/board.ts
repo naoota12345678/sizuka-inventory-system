@@ -1,8 +1,8 @@
 import { getStore } from "./store";
-import { jstDate, hmOf, addDays } from "./time";
+import { jstDate, hmOf } from "./time";
 import type { RecordRow } from "./types";
 
-export type BoardEntry = { time: string; date: string; name: string; text: string; cows: string[]; rowId: number };
+export type BoardEntry = { time: string; date: string; name: string; text: string; rowId: number };
 export type BoardData = {
   date: string;
   today: string;
@@ -12,7 +12,7 @@ export type BoardData = {
 };
 
 function toEntry(r: RecordRow): BoardEntry {
-  return { time: hmOf(r.receivedAt), date: r.date, name: r.name, text: r.content || r.raw, cows: r.cows, rowId: r.rowId };
+  return { time: hmOf(r.receivedAt), date: r.date, name: r.name, text: r.content || r.raw, rowId: r.rowId };
 }
 
 const newestFirst = (a: RecordRow, b: RecordRow) => b.receivedAt.localeCompare(a.receivedAt);
@@ -32,14 +32,4 @@ export async function buildBoard(date: string): Promise<BoardData> {
     entries: live.map(toEntry),
     people: [...counts].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
   };
-}
-
-/** 牛番号の記録を過去 days 日分 */
-export async function cowHistory(cow: string, days = 7) {
-  const today = jstDate();
-  const records = await getStore().getRecords(addDays(today, -(days - 1)), today);
-  return records
-    .filter((r) => !r.cancelled && r.cows.includes(cow))
-    .sort(newestFirst)
-    .map(toEntry);
 }
