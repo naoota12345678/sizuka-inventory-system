@@ -18,6 +18,14 @@ async function readBody(req: NextRequest): Promise<Record<string, unknown>> {
   }
 }
 
+/** ブラウザで開いたとき用。記録は POST でしか受け付けない */
+export async function GET() {
+  return new NextResponse(
+    "これは iPhone のショートカット「日報」が記録を送るための受け口です。ブラウザで開いても記録はされません（正常です）。\n記録を見るときはトップページを開いてください。",
+    { headers: { "content-type": "text/plain; charset=utf-8" } },
+  );
+}
+
 export async function POST(req: NextRequest) {
   const body = await readBody(req);
   const store = getStore();

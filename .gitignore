@@ -8,5 +8,6 @@ out
 *.tsbuildinfo
 next-env.d.ts
 
-.vercel
+# 秘密の入る env ファイルはすべて除外（見本の .env.example だけは残す）
 .env*
+!.env.example
